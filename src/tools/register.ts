@@ -4,6 +4,7 @@ import type { CapturePipeline } from '../pipeline/capture.js'
 import type { EmbeddingService } from '../pipeline/embeddings.js'
 import type { ThoughtsRepository, SearchFilters } from '../repository/types.js'
 import type { ActivityLogger } from '../activity/logger.js'
+import type { StreamRepository } from '../stream/types.js'
 import { wrapToolHandler, type ClientInfo } from '../activity/middleware.js'
 import { logger } from '../shared/logger.js'
 
@@ -14,6 +15,7 @@ export function registerTools(
   repository: ThoughtsRepository,
   activityLogger?: ActivityLogger,
   getClientInfo?: () => ClientInfo,
+  streamRepository?: StreamRepository,
 ): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wrap = (name: string, handler: any) => {
@@ -348,6 +350,104 @@ export function registerTools(
       }
     }),
   )
+
+  if (streamRepository) {
+    server.registerTool(
+      'stream_write',
+      {
+        description: 'Write a conversation block to the stream. Captures raw conversation data for later distillation into thoughts. No AI processing — fast, direct DB write.',
+        inputSchema: {
+          session_id: z.string().min(1).max(255).describe('Unique session identifier (e.g., conversation ID)'),
+          block_number: z.number().int().min(0).describe('Sequential block number within the session'),
+          topic: z.string().optional().describe('Conversation topic or thread'),
+          content: z.string().min(1).describe('The conversation content to capture'),
+          participants: z.array(z.string()).optional().describe('Participant names (e.g., ["user", "assistant"])'),
+          source_client: z.string().optional().describe('Client that captured this (e.g., "claude-desktop", "cursor")'),
+        },
+      },
+      wrap('stream_write', async (args: Record<string, unknown>) => {
+        try {
+          const block = await streamRepository.write({
+            sessionId: args.session_id as string,
+            blockNumber: args.block_number as number,
+            topic: args.topic as string | undefined,
+            content: args.content as string,
+            participants: args.participants as string[] | undefined,
+            sourceClient: args.source_client as string | undefined,
+          }, 0)
+
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify({
+                id: block.id,
+                session_id: block.sessionId,
+                block_number: block.blockNumber,
+                expires_at: block.expiresAt?.toISOString() ?? null,
+              }, null, 2),
+            }],
+          }
+        } catch (error) {
+          logger.error({ err: error }, 'stream_write failed')
+          return {
+            content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+            isError: true,
+          }
+        }
+      }),
+    )
+
+    server.registerTool(
+      'stream_read',
+      {
+        description: 'Read conversation blocks from the stream. Filter by session, status, or search content.',
+        inputSchema: {
+          session_id: z.string().optional().describe('Filter by session ID'),
+          limit: z.number().int().min(1).max(100).default(20).describe('Max blocks to return'),
+          status: z.enum(['pending', 'distilled', 'pinned']).optional().describe('Filter by distillation status'),
+          search: z.string().optional().describe('Full-text search in content'),
+        },
+      },
+      wrap('stream_read', async (args: Record<string, unknown>) => {
+        try {
+          const blocks = await streamRepository.findRecent(
+            (args.limit as number) ?? 20,
+            {
+              sessionId: args.session_id as string | undefined,
+              status: args.status as 'pending' | 'distilled' | 'pinned' | undefined,
+              search: args.search as string | undefined,
+            },
+          )
+
+          const response = {
+            blocks: blocks.map((b) => ({
+              id: b.id,
+              session_id: b.sessionId,
+              block_number: b.blockNumber,
+              topic: b.topic,
+              content: b.content,
+              participants: b.participants,
+              source_client: b.sourceClient,
+              pinned: b.pinned,
+              distilled: b.distilledAt !== null,
+              created_at: b.createdAt?.toISOString() ?? null,
+            })),
+            total: blocks.length,
+          }
+
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }],
+          }
+        } catch (error) {
+          logger.error({ err: error }, 'stream_read failed')
+          return {
+            content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+            isError: true,
+          }
+        }
+      }),
+    )
+  }
 
   logger.info('All MCP tools registered')
 }

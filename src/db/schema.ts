@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, varchar, timestamp, real, integer, index, primaryKey, customType } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, varchar, timestamp, real, integer, boolean, index, primaryKey, uniqueIndex, customType } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 
 const vector = customType<{ data: number[]; driverParam: string }>({
   dataType() {
@@ -42,6 +43,7 @@ export const thoughts = pgTable(
 
     obsidianPath: text('obsidian_path'),
     obsidianHash: text('obsidian_hash'),
+    contentHash: varchar('content_hash', { length: 16 }),
   },
   (table) => [
     index('idx_thoughts_tags').using('gin', table.tags),
@@ -85,5 +87,32 @@ export const activityLog = pgTable(
   ],
 )
 
+export const stream = pgTable(
+  'stream',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sessionId: varchar('session_id', { length: 255 }).notNull(),
+    blockNumber: integer('block_number').notNull(),
+    topic: text('topic'),
+    content: text('content').notNull(),
+    participants: text('participants').array(),
+    sourceClient: varchar('source_client', { length: 100 }),
+    pinned: boolean('pinned').default(false).notNull(),
+    distilledAt: timestamp('distilled_at', { withTimezone: true }),
+    distillationRunId: uuid('distillation_run_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('idx_stream_session').on(table.sessionId),
+    index('idx_stream_created').on(table.createdAt),
+    index('idx_stream_expires').on(table.expiresAt).where(sql`expires_at IS NOT NULL`),
+    index('idx_stream_distilled').on(table.distilledAt).where(sql`distilled_at IS NULL`),
+    uniqueIndex('idx_stream_session_block').on(table.sessionId, table.blockNumber),
+  ],
+)
+
 export type ThoughtRecord = typeof thoughts.$inferSelect
 export type NewThoughtRecord = typeof thoughts.$inferInsert
+export type StreamRecord = typeof stream.$inferSelect
+export type NewStreamRecord = typeof stream.$inferInsert

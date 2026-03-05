@@ -45,6 +45,19 @@ const batchSchema = z.object({
   }).optional(),
 })
 
+const streamWriteSchema = z.object({
+  session_id: z.string().min(1).max(255),
+  block_number: z.number().int().min(0),
+  topic: z.string().max(500).optional(),
+  content: z.string().min(1).max(102400),
+  participants: z.array(z.string().max(100)).max(20).optional(),
+  source_client: z.string().max(100).optional(),
+})
+
+const streamPinSchema = z.object({
+  pinned: z.boolean(),
+})
+
 const importFilesSchema = z.object({
   files: z.array(z.object({
     name: z.string().min(1).max(500),
@@ -635,6 +648,132 @@ export async function handleApiRequest(
         updated_at: updated.updatedAt?.toISOString() ?? null,
         re_embedded: newEmbedding !== undefined,
       })
+      return
+    }
+
+    // GET /api/stream
+    if (url.pathname === '/api/stream' && req.method === 'GET') {
+      const limit = clampInt(url.searchParams.get('limit'), 50, 1, 200)
+      const sessionId = url.searchParams.get('session_id') ?? undefined
+      const status = url.searchParams.get('status') as 'pending' | 'distilled' | 'pinned' | undefined
+      const search = url.searchParams.get('search') ?? undefined
+
+      const blocks = await services.streamRepository.findRecent(limit, { sessionId, status, search })
+
+      json(res, {
+        blocks: blocks.map((b) => ({
+          id: b.id,
+          session_id: b.sessionId,
+          block_number: b.blockNumber,
+          topic: b.topic,
+          content: b.content,
+          participants: b.participants,
+          source_client: b.sourceClient,
+          pinned: b.pinned,
+          distilled: b.distilledAt !== null,
+          created_at: b.createdAt?.toISOString() ?? null,
+          expires_at: b.expiresAt?.toISOString() ?? null,
+        })),
+        total: blocks.length,
+      })
+      return
+    }
+
+    // GET /api/stream/sessions
+    if (url.pathname === '/api/stream/sessions' && req.method === 'GET') {
+      const limit = clampInt(url.searchParams.get('limit'), 50, 1, 200)
+      const sessions = await services.streamRepository.listSessions(limit)
+
+      json(res, {
+        sessions: sessions.map((s) => ({
+          session_id: s.sessionId,
+          block_count: s.blockCount,
+          first_block: s.firstBlock?.toISOString() ?? null,
+          last_block: s.lastBlock?.toISOString() ?? null,
+          topic: s.topic,
+          source_client: s.sourceClient,
+        })),
+        total: sessions.length,
+      })
+      return
+    }
+
+    // GET /api/stream/stats
+    if (url.pathname === '/api/stream/stats' && req.method === 'GET') {
+      const stats = await services.streamRepository.getStats()
+
+      json(res, {
+        total_blocks: stats.totalBlocks,
+        total_sessions: stats.totalSessions,
+        pending_blocks: stats.pendingBlocks,
+        distilled_blocks: stats.distilledBlocks,
+        pinned_blocks: stats.pinnedBlocks,
+      })
+      return
+    }
+
+    // POST /api/stream
+    if (url.pathname === '/api/stream' && req.method === 'POST') {
+      const raw = await parseJsonBody(req)
+      const body = streamWriteSchema.parse(raw)
+      const block = await services.streamRepository.write({
+        sessionId: body.session_id,
+        blockNumber: body.block_number,
+        topic: body.topic,
+        content: body.content,
+        participants: body.participants,
+        sourceClient: body.source_client,
+      }, 0)
+
+      json(res, {
+        id: block.id,
+        session_id: block.sessionId,
+        block_number: block.blockNumber,
+        created_at: block.createdAt?.toISOString() ?? null,
+        expires_at: block.expiresAt?.toISOString() ?? null,
+      }, 201)
+      return
+    }
+
+    // PATCH /api/stream/:id/pin
+    const streamPinMatch = matchPath(url.pathname, '/api/stream/:id/pin')
+    if (streamPinMatch && req.method === 'PATCH') {
+      const { id } = streamPinMatch
+      if (!id || !isValidUuid(id)) {
+        json(res, { error: 'Invalid stream block ID' }, 400)
+        return
+      }
+      const raw = await parseJsonBody(req)
+      const body = streamPinSchema.parse(raw)
+      const updated = body.pinned
+        ? await services.streamRepository.pin(id)
+        : await services.streamRepository.unpin(id)
+      if (!updated) {
+        json(res, { error: 'Stream block not found' }, 404)
+        return
+      }
+      json(res, {
+        id: updated.id,
+        pinned: updated.pinned,
+        expires_at: updated.expiresAt?.toISOString() ?? null,
+      })
+      return
+    }
+
+    // DELETE /api/stream/:id
+    const streamDeleteMatch = matchPath(url.pathname, '/api/stream/:id')
+    if (streamDeleteMatch && req.method === 'DELETE') {
+      const { id } = streamDeleteMatch
+      if (!id || !isValidUuid(id)) {
+        json(res, { error: 'Invalid stream block ID' }, 400)
+        return
+      }
+      const deleted = await services.streamRepository.deleteById(id)
+      if (!deleted) {
+        json(res, { error: 'Stream block not found' }, 404)
+        return
+      }
+      json(res, { deleted: true, id })
       return
     }
 

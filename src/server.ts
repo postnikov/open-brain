@@ -5,6 +5,7 @@ import { bootstrapServices, createMcpServer } from './bootstrap.js'
 import { logger } from './shared/logger.js'
 import { handleApiRequest } from './web/api.js'
 import { HTML } from './web/ui.js'
+import { runStreamCleanup } from './stream/cleanup.js'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
 const PORT = parseInt(process.env.PORT ?? '3100', 10)
@@ -135,7 +136,11 @@ async function main(): Promise<void> {
     }
   }
   await runCompostCleanup()
+  if (services.config.stream.cleanup_on_startup) {
+    await runStreamCleanup(services.streamRepository)
+  }
   const cleanupInterval = setInterval(runCompostCleanup, 60 * 60 * 1000)
+  const streamCleanupInterval = setInterval(() => runStreamCleanup(services.streamRepository), 60 * 60 * 1000)
 
   httpServer.listen(PORT, () => {
     logger.info({ port: PORT }, 'Open Brain HTTP MCP server started')
@@ -149,6 +154,7 @@ async function main(): Promise<void> {
       await session.server.close()
     }
     clearInterval(cleanupInterval)
+    clearInterval(streamCleanupInterval)
     httpServer.close()
     await services.pool.end()
     process.exit(0)

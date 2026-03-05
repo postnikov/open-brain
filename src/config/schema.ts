@@ -18,10 +18,16 @@ export const captureConfigSchema = z.object({
   auto_title: z.boolean().default(true),
 })
 
+export const streamConfigSchema = z.object({
+  ttl_days: z.number().int().min(1).max(365).default(30),
+  cleanup_on_startup: z.boolean().default(true),
+})
+
 export const configSchema = z.object({
   database: databaseConfigSchema.default({}),
   openai: openaiConfigSchema.default({}),
   capture: captureConfigSchema.default({}),
+  stream: streamConfigSchema.default({}),
 })
 
 export type AppConfig = z.infer<typeof configSchema>

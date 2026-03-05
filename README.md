@@ -33,13 +33,15 @@ Open http://localhost:3100
 
 **Semantic Search** finds thoughts by meaning, not just keywords. Powered by OpenAI embeddings + pgvector cosine similarity.
 
-**Web UI** with 8 tabs:
+**Web UI** with 10 tabs:
 - **Search** — semantic search with similarity scores
 - **Timeline** — see how your thinking evolves on a topic over time
 - **Recent** — latest thoughts with source filters
 - **Review** — weekly reflection: revisit past thoughts (still true? evolved? let go?)
 - **Compost** — thoughts you're letting go, dissolving in 30 days
 - **Duplicates** — find and resolve near-duplicate thoughts
+- **Stream** — raw conversation capture buffer for later distillation into thoughts
+- **Import** — drag-and-drop file upload + Obsidian vault scanner with progress tracking
 - **Activity** — real-time feed of all MCP tool calls (who, when, what, latency)
 - **Stats** — counts by source, type, orphan tags
 
@@ -50,7 +52,7 @@ Open http://localhost:3100
 - Batch operations — select multiple, bulk delete/compost/tag/status
 - Custom modal dialogs (no browser alerts)
 
-**MCP Server** with 8 tools for Claude Desktop, Cursor, and other MCP clients:
+**MCP Server** with 10 tools for Claude Desktop, Cursor, and other MCP clients:
 - `brain_save` — capture a thought with auto-embedding and metadata
 - `brain_search` — semantic search with filters
 - `brain_recent` — latest thoughts
@@ -59,6 +61,8 @@ Open http://localhost:3100
 - `brain_tags` — list all tags with counts
 - `brain_tag_rename` — rename or merge tags
 - `brain_delete` — delete a thought by ID
+- `stream_write` — write a conversation block to the stream (no AI, fast)
+- `stream_read` — read stream blocks with filters
 
 All MCP tool calls are logged to the Activity Feed for full transparency.
 
@@ -147,6 +151,16 @@ All tool calls from any connected client are logged to the **Activity** tab in t
 | POST | `/api/duplicates/dismiss` | Dismiss duplicate pair |
 | PUT | `/api/tags/rename` | Rename/merge tags |
 | DELETE | `/api/tags/:tag/from/:thoughtId` | Remove tag from thought |
+| POST | `/api/import/files` | Import files with embeddings |
+| POST | `/api/import/obsidian/scan` | Scan Obsidian vault for .md files |
+| POST | `/api/import/obsidian/start` | Start Obsidian vault import |
+| GET | `/api/import/status` | Import progress |
+| GET | `/api/stream` | Stream blocks (with filters) |
+| GET | `/api/stream/sessions` | Stream sessions with block counts |
+| GET | `/api/stream/stats` | Stream statistics |
+| POST | `/api/stream` | Write a stream block |
+| PATCH | `/api/stream/:id/pin` | Pin/unpin stream block |
+| DELETE | `/api/stream/:id` | Delete stream block |
 | GET | `/api/activity` | MCP tool call log |
 | GET | `/api/activity/stats` | Activity statistics |
 

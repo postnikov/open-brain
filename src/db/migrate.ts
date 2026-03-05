@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS thoughts (
   updated_at    TIMESTAMPTZ DEFAULT NOW(),
 
   obsidian_path TEXT,
-  obsidian_hash TEXT
+  obsidian_hash TEXT,
+  content_hash  VARCHAR(16)
 );
 
 CREATE INDEX IF NOT EXISTS idx_thoughts_tags ON thoughts USING GIN (tags);
@@ -73,6 +74,36 @@ CREATE INDEX IF NOT EXISTS idx_activity_tool ON activity_log (tool_name);
 CREATE INDEX IF NOT EXISTS idx_activity_client ON activity_log (client_name);
 `
 
+const CONTENT_HASH_SQL = `
+ALTER TABLE thoughts ADD COLUMN IF NOT EXISTS content_hash VARCHAR(16);
+CREATE INDEX IF NOT EXISTS idx_thoughts_content_hash ON thoughts (content_hash) WHERE content_hash IS NOT NULL;
+UPDATE thoughts SET content_hash = LEFT(encode(sha256(convert_to(trim(content), 'UTF8')), 'hex'), 16)
+  WHERE content_hash IS NULL;
+`
+
+const STREAM_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS stream (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id       VARCHAR(255) NOT NULL,
+  block_number     INTEGER NOT NULL,
+  topic            TEXT,
+  content          TEXT NOT NULL,
+  participants     TEXT[],
+  source_client    VARCHAR(100),
+  pinned           BOOLEAN NOT NULL DEFAULT false,
+  distilled_at     TIMESTAMPTZ,
+  distillation_run_id UUID,
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  expires_at       TIMESTAMPTZ,
+  UNIQUE(session_id, block_number)
+);
+CREATE INDEX IF NOT EXISTS idx_stream_session ON stream (session_id);
+CREATE INDEX IF NOT EXISTS idx_stream_created ON stream (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stream_expires ON stream (expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_stream_distilled ON stream (distilled_at) WHERE distilled_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_stream_content_fts ON stream USING GIN (to_tsvector('english', content));
+`
+
 const DISMISSED_PAIRS_SQL = `
 CREATE TABLE IF NOT EXISTS dismissed_pairs (
   id_a UUID NOT NULL,
@@ -103,11 +134,17 @@ async function migrate(): Promise<void> {
     await client.query(WAVE2_SQL)
     logger.info('Wave 2 columns added (weight, composted_at, epistemic_status)')
 
+    await client.query(CONTENT_HASH_SQL)
+    logger.info('Content hash column added and backfilled')
+
     await client.query(DISMISSED_PAIRS_SQL)
     logger.info('Dismissed pairs table created')
 
     await client.query(ACTIVITY_LOG_SQL)
     logger.info('Activity log table created')
+
+    await client.query(STREAM_TABLE_SQL)
+    logger.info('Stream table created')
 
     logger.info('Migrations complete')
   } catch (error) {

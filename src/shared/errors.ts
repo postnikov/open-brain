@@ -29,3 +29,10 @@ export class MetadataExtractionError extends OpenBrainError {
     this.name = 'MetadataExtractionError'
   }
 }
+
+export class StreamError extends OpenBrainError {
+  constructor(message: string, cause?: unknown) {
+    super(message, 'STREAM_ERROR', cause)
+    this.name = 'StreamError'
+  }
+}

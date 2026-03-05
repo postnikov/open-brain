@@ -6,9 +6,11 @@ import { createThoughtsRepository } from './repository/thoughts.js'
 import { createEmbeddingService } from './pipeline/embeddings.js'
 import { createMetadataService } from './pipeline/metadata.js'
 import { createCapturePipeline } from './pipeline/capture.js'
+import { createStreamRepository } from './stream/repository.js'
 import type { ThoughtsRepository } from './repository/types.js'
 import type { EmbeddingService } from './pipeline/embeddings.js'
 import type { CapturePipeline } from './pipeline/capture.js'
+import type { StreamRepository } from './stream/types.js'
 import type { AppConfig } from './config/schema.js'
 import pg from 'pg'
 
@@ -16,6 +18,7 @@ interface Services {
   readonly repository: ThoughtsRepository
   readonly embeddingService: EmbeddingService
   readonly pipeline: CapturePipeline
+  readonly streamRepository: StreamRepository
   readonly pool: pg.Pool
 }
 
@@ -31,8 +34,9 @@ async function bootstrap(config: AppConfig): Promise<Services> {
   const embeddingService = createEmbeddingService(apiKey, config.openai.embedding_model)
   const metadataService = createMetadataService(apiKey, config.openai.metadata_model)
   const pipeline = createCapturePipeline(embeddingService, metadataService, repository)
+  const streamRepository = createStreamRepository(db, config.stream.ttl_days)
 
-  return { repository, embeddingService, pipeline, pool }
+  return { repository, embeddingService, pipeline, streamRepository, pool }
 }
 
 const program = new Command()
@@ -221,6 +225,40 @@ program
 
       await repository.deleteById(id)
       process.stdout.write(`Deleted: ${thought.title ?? 'Untitled'} (${id})\n`)
+    } finally {
+      await pool.end()
+    }
+  })
+
+program
+  .command('stream')
+  .description('Show recent stream blocks')
+  .option('-l, --limit <n>', 'Number of blocks', '20')
+  .option('-s, --session <id>', 'Filter by session ID')
+  .option('--status <status>', 'Filter: pending, distilled, pinned')
+  .action(async (opts: { limit: string; session?: string; status?: string }) => {
+    const config = await loadConfig()
+    const { streamRepository, pool } = await bootstrap(config)
+
+    try {
+      const blocks = await streamRepository.findRecent(parseInt(opts.limit, 10), {
+        sessionId: opts.session,
+        status: opts.status as 'pending' | 'distilled' | 'pinned' | undefined,
+      })
+
+      if (blocks.length === 0) {
+        process.stdout.write('No stream blocks found.\n')
+        return
+      }
+
+      for (const block of blocks) {
+        const date = block.createdAt?.toLocaleDateString() ?? '?'
+        const status = block.distilledAt ? 'distilled' : block.pinned ? 'pinned' : 'pending'
+        process.stdout.write(`\n[${date}] [${status}] Session: ${block.sessionId} #${block.blockNumber}\n`)
+        if (block.topic) process.stdout.write(`  Topic: ${block.topic}\n`)
+        process.stdout.write(`  ${block.content.slice(0, 120)}${block.content.length > 120 ? '...' : ''}\n`)
+        if (block.participants) process.stdout.write(`  Participants: ${block.participants.join(', ')}\n`)
+      }
     } finally {
       await pool.end()
     }

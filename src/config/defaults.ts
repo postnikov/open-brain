@@ -16,4 +16,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     auto_tag: true,
     auto_title: true,
   },
+  stream: {
+    ttl_days: 30,
+    cleanup_on_startup: true,
+  },
 }

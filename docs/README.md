@@ -190,6 +190,22 @@ brain tags
 brain tag-rename "job_search" "job search"
 ```
 
+### Стрим
+
+```bash
+# Последние блоки стрима
+brain stream
+brain stream --limit 10
+brain stream --session my-session-id
+brain stream --status pending
+```
+
+| Флаг | Описание | По умолчанию |
+|------|----------|-------------|
+| `-l, --limit` | Количество блоков | `20` |
+| `-s, --session` | Фильтр по ID сессии | все |
+| `--status` | Фильтр: pending, distilled, pinned | все |
+
 ### Удаление
 
 ```bash
@@ -200,7 +216,7 @@ brain delete <UUID>
 
 ## MCP Tools — интеграция с Claude
 
-Open Brain предоставляет 8 MCP tools, доступных из Claude Desktop (stdio) и через HTTP:
+Open Brain предоставляет 10 MCP tools, доступных из Claude Desktop (stdio) и через HTTP:
 
 ### brain_save
 Сохранить мысль с автоматическим извлечением метаданных.
@@ -265,6 +281,28 @@ Open Brain предоставляет 8 MCP tools, доступных из Claud
 |----------|-----|-------------|----------|
 | `thought_id` | UUID | да | ID мысли для удаления |
 
+### stream_write
+Записать блок разговора в стрим (без AI, быстрая запись).
+
+| Параметр | Тип | Обязательный | Описание |
+|----------|-----|-------------|----------|
+| `session_id` | string | да | Уникальный ID сессии |
+| `block_number` | number | да | Порядковый номер блока |
+| `topic` | string | нет | Тема разговора |
+| `content` | string | да | Содержание блока |
+| `participants` | string[] | нет | Участники (e.g., ["user", "assistant"]) |
+| `source_client` | string | нет | Клиент-источник (e.g., "claude-desktop") |
+
+### stream_read
+Чтение блоков из стрима с фильтрами.
+
+| Параметр | Тип | Обязательный | Описание |
+|----------|-----|-------------|----------|
+| `session_id` | string | нет | Фильтр по сессии |
+| `limit` | number | нет (20) | Максимум блоков (1-100) |
+| `status` | string | нет | pending, distilled, pinned |
+| `search` | string | нет | Полнотекстовый поиск по содержанию |
+
 ### Claude Desktop
 
 Конфигурация уже добавлена в `~/Library/Application Support/Claude/claude_desktop_config.json`. После рестарта Claude Desktop все tools доступны. В чате с Claude можно говорить:
@@ -280,13 +318,15 @@ Open Brain предоставляет 8 MCP tools, доступных из Claud
 
 Доступен по адресу: **http://localhost:3100**
 
-8 вкладок:
+10 вкладок:
 - **Search** — семантический поиск с debounce, результаты с процентом похожести
 - **Timeline** — хронологический поиск по теме: как менялось мышление со временем
 - **Recent** — последние записи с фильтрами по источнику
 - **Review** — еженедельная рефлексия: «что ты думал N дней назад?» с действиями Still true / Evolved / Let go
 - **Compost** — мысли, которые ты отпускаешь (растворяются через 30 дней)
 - **Duplicates** — обнаружение и разрешение дубликатов (merge / keep / dismiss)
+- **Stream** — буфер захвата разговоров: сырые блоки для дистилляции в мысли
+- **Import** — drag-and-drop загрузка файлов + сканер Obsidian vault с прогресс-баром
 - **Activity** — лента всех MCP tool calls: кто обратился, что спросил, что получил, latency
 - **Stats** — статистика: total, 7/30 дней, по источникам, по типам, orphan-теги
 
@@ -319,8 +359,12 @@ Open Brain предоставляет 8 MCP tools, доступных из Claud
 | GET | `/api/compost` | Мысли в компосте |
 | GET | `/api/duplicates?min_similarity=0.92` | Пары дубликатов |
 | GET | `/api/questions` | Мысли со статусом "question" |
+| GET | `/api/stream?limit=50&session_id=...&status=pending` | Блоки стрима |
+| GET | `/api/stream/sessions?limit=50` | Сессии стрима |
+| GET | `/api/stream/stats` | Статистика стрима |
 | GET | `/api/activity?limit=50&tool=brain_search` | Лог MCP-вызовов |
 | GET | `/api/activity/stats` | Статистика активности |
+| GET | `/api/import/status` | Прогресс импорта |
 
 ### Запись
 
@@ -337,6 +381,12 @@ Open Brain предоставляет 8 MCP tools, доступных из Claud
 | POST | `/api/duplicates/dismiss` | Отклонить пару дубликатов |
 | PUT | `/api/tags/rename` | Переименовать/объединить тег |
 | DELETE | `/api/tags/:tag/from/:thoughtId` | Удалить тег с мысли |
+| POST | `/api/import/files` | Импорт файлов с генерацией эмбеддингов |
+| POST | `/api/stream` | Записать блок стрима |
+| PATCH | `/api/stream/:id/pin` | Закрепить/открепить блок |
+| DELETE | `/api/stream/:id` | Удалить блок стрима |
+| POST | `/api/import/obsidian/scan` | Сканирование Obsidian vault |
+| POST | `/api/import/obsidian/start` | Запуск импорта из vault |
 
 ---
 
@@ -498,8 +548,12 @@ gunzip -c ~/.open-brain/backups/open-brain-2026-03-04_0146.sql.gz \
 | `created_at` | TIMESTAMPTZ | Когда сохранено |
 | `thought_at` | TIMESTAMPTZ | Когда мысль возникла (может отличаться) |
 | `updated_at` | TIMESTAMPTZ | Последнее обновление |
+| `weight` | REAL | Вес мысли в поиске (default 1.0, Fade/Amplify) |
+| `composted_at` | TIMESTAMPTZ | Когда отправлена в компост (soft delete) |
+| `epistemic_status` | VARCHAR(20) | hypothesis, conviction, fact, outdated, question |
+| `content_hash` | VARCHAR(16) | SHA256 контента, первые 16 символов (дедупликация) |
 | `obsidian_path` | TEXT | Путь в vault (для Obsidian-файлов) |
-| `obsidian_hash` | TEXT | SHA256 контента (дедупликация) |
+| `obsidian_hash` | TEXT | SHA256 контента Obsidian-файла (legacy) |
 
 ### Индексы
 
@@ -510,6 +564,54 @@ gunzip -c ~/.open-brain/backups/open-brain-2026-03-04_0146.sql.gz \
 | `idx_thoughts_source` | B-tree | source |
 | `idx_thoughts_created` | B-tree | created_at DESC |
 | `idx_thoughts_type` | B-tree | content_type |
+| `idx_thoughts_composted` | B-tree (partial) | composted_at (WHERE NOT NULL) |
+| `idx_thoughts_epistemic` | B-tree (partial) | epistemic_status (WHERE NOT NULL) |
+| `idx_thoughts_content_hash` | B-tree (partial) | content_hash (WHERE NOT NULL) |
+
+### Таблица `activity_log`
+
+| Столбец | Тип | Описание |
+|---------|-----|----------|
+| `id` | UUID | Уникальный идентификатор (auto) |
+| `tool_name` | VARCHAR(100) | Имя MCP-инструмента |
+| `client_name` | VARCHAR(255) | Имя клиента (Claude Desktop, Cursor и т.д.) |
+| `client_version` | VARCHAR(50) | Версия клиента |
+| `session_id` | VARCHAR(36) | ID MCP-сессии |
+| `status` | VARCHAR(20) | success / error |
+| `duration_ms` | INTEGER | Время выполнения в миллисекундах |
+| `input_summary` | TEXT | Краткое описание входных параметров |
+| `output_summary` | TEXT | Краткое описание результата |
+| `error_message` | TEXT | Текст ошибки (при status=error) |
+| `created_at` | TIMESTAMPTZ | Время вызова |
+
+### Таблица `stream`
+
+| Столбец | Тип | Описание |
+|---------|-----|----------|
+| `id` | UUID | Уникальный идентификатор (auto) |
+| `session_id` | VARCHAR(255) | ID сессии разговора |
+| `block_number` | INTEGER | Порядковый номер блока в сессии |
+| `topic` | TEXT | Тема разговора |
+| `content` | TEXT | Содержание блока |
+| `participants` | TEXT[] | Участники разговора |
+| `source_client` | VARCHAR(100) | Клиент-источник |
+| `pinned` | BOOLEAN | Закреплён (не удаляется по TTL) |
+| `distilled_at` | TIMESTAMPTZ | Когда дистиллирован в мысли |
+| `distillation_run_id` | UUID | ID прогона дистилляции |
+| `created_at` | TIMESTAMPTZ | Когда создан |
+| `expires_at` | TIMESTAMPTZ | Когда истекает (TTL, default 30 дней) |
+
+UNIQUE: `(session_id, block_number)`. GIN full-text index on content.
+
+### Таблица `dismissed_pairs`
+
+| Столбец | Тип | Описание |
+|---------|-----|----------|
+| `id_a` | UUID | ID первой мысли |
+| `id_b` | UUID | ID второй мысли |
+| `dismissed_at` | TIMESTAMPTZ | Когда пара отклонена |
+
+PRIMARY KEY: `(id_a, id_b)`. Хранит пары дубликатов, которые пользователь отклонил.
 
 ---
 
@@ -565,11 +667,8 @@ gunzip -c ~/.open-brain/backups/open-brain-2026-03-04_0146.sql.gz \
 | Метод | URL | Описание |
 |-------|-----|----------|
 | GET | `/` | Web UI |
-| GET | `/health` | Healthcheck |
-| GET | `/api/search` | REST API поиск |
-| GET | `/api/recent` | REST API последние |
-| GET | `/api/stats` | REST API статистика |
-| GET | `/api/tags` | REST API теги |
+| GET | `/health` | Healthcheck (`{status, sessions}`) |
+| GET | `/api/*` | REST API (см. раздел REST API выше) |
 | POST | `/mcp` | MCP JSON-RPC (новая сессия) |
 | GET | `/mcp` | MCP SSE stream (с Mcp-Session-Id) |
 | DELETE | `/mcp` | Закрыть MCP сессию |
@@ -653,9 +752,18 @@ open-brain/
 │   ├── pipeline/
 │   │   ├── embeddings.ts      # OpenAI embedding service
 │   │   ├── metadata.ts        # OpenAI metadata extraction
-│   │   └── capture.ts         # Capture pipeline (embed + metadata)
+│   │   └── capture.ts         # Capture pipeline (embed + metadata + content_hash)
+│   ├── activity/
+│   │   ├── logger.ts          # Activity logger (запись MCP-вызовов в БД)
+│   │   └── middleware.ts      # Middleware для обёртки tool handlers
+│   ├── import/
+│   │   └── service.ts         # Импорт файлов и Obsidian vault
+│   ├── stream/
+│   │   ├── types.ts            # Интерфейсы StreamBlock, StreamRepository
+│   │   ├── repository.ts       # Реализация stream-репозитория
+│   │   └── cleanup.ts          # Очистка истёкших блоков
 │   ├── tools/
-│   │   └── register.ts        # Регистрация 8 MCP tools
+│   │   └── register.ts        # Регистрация 10 MCP tools
 │   ├── web/
 │   │   ├── ui.ts              # HTML Web UI (single page)
 │   │   └── api.ts             # REST API handlers
@@ -686,8 +794,9 @@ open-brain/
 | `npm run export:md` | Экспорт в Markdown |
 | `npm run backup` | Бэкап базы данных |
 | `npm run build` | Компиляция TypeScript |
-| `npm run test` | Запуск тестов |
+| `npm run test` | Запуск тестов (vitest) |
+| `npm run test:api` | API smoke tests |
 
 ---
 
-*Документация актуальна на 4 марта 2026. Версия: 0.1.0*
+*Документация актуальна на 5 марта 2026. Версия: 0.1.0*

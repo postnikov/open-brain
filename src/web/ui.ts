@@ -158,6 +158,24 @@ export const HTML = `<!DOCTYPE html>
   .progress-detail { font-size: 12px; color: #666; margin-top: 4px; }
   .progress-errors { font-size: 12px; color: #a66; margin-top: 6px; }
 
+  .stream-controls { margin-bottom: 16px; }
+  .stream-filters { display: flex; gap: 8px; margin-top: 8px; }
+  .stream-filters select { padding: 6px 10px; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; color: #fff; font-size: 13px; }
+  .stream-stats-bar { display: flex; gap: 16px; padding: 10px 16px; background: #111; border: 1px solid #222; border-radius: 8px; margin-bottom: 16px; font-size: 13px; color: #888; }
+  .stream-stats-bar span { color: #fff; font-weight: 500; }
+  .stream-block { background: #111; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-bottom: 10px; }
+  .stream-block:hover { border-color: #444; }
+  .stream-block.pinned { border-left: 3px solid #4a9; }
+  .stream-block.distilled { opacity: 0.6; }
+  .stream-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
+  .stream-session-badge { font-size: 12px; padding: 2px 8px; background: #1a1a2a; border-radius: 4px; color: #88a; }
+  .stream-topic { font-size: 13px; color: #4a9; font-weight: 500; }
+  .stream-content { color: #aaa; font-size: 14px; line-height: 1.5; margin-bottom: 10px; white-space: pre-wrap; word-break: break-word; }
+  .stream-meta { display: flex; gap: 12px; align-items: center; font-size: 12px; color: #666; flex-wrap: wrap; }
+  .stream-actions { display: flex; gap: 6px; }
+  .stream-actions button { background: none; border: 1px solid #333; color: #888; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+  .stream-actions button:hover { color: #fff; border-color: #555; }
+
   .review-nav { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; }
   .review-nav button { background: #1a1a1a; border: 1px solid #333; color: #999; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .review-nav button:hover { color: #fff; border-color: #555; }
@@ -220,6 +238,7 @@ export const HTML = `<!DOCTYPE html>
     <div class="tab" data-tab="review" onclick="switchTab('review')">Review</div>
     <div class="tab" data-tab="compost" onclick="switchTab('compost')">Compost</div>
     <div class="tab" data-tab="duplicates" onclick="switchTab('duplicates')">Duplicates</div>
+    <div class="tab" data-tab="stream" onclick="switchTab('stream')">Stream</div>
     <div class="tab" data-tab="import" onclick="switchTab('import')">Import</div>
     <div class="tab" data-tab="activity" onclick="switchTab('activity')">Activity</div>
     <div class="tab" data-tab="stats" onclick="switchTab('stats')">Stats</div>
@@ -231,6 +250,17 @@ export const HTML = `<!DOCTYPE html>
   <div id="review-view" style="display:none"><div class="review-nav"><button data-action="review-earlier">\\u2190 Earlier</button><span class="review-label" id="reviewLabel">7 days ago</span><button data-action="review-later">Later \\u2192</button></div><div id="reviewResults"></div></div>
   <div id="compost-view" style="display:none"><div id="compostResults"></div></div>
   <div id="duplicates-view" style="display:none"><div id="duplicatesResults"></div></div>
+  <div id="stream-view" style="display:none">
+    <div class="stream-controls">
+      <div class="search-box"><input type="text" id="streamSearchInput" placeholder="Search stream content..."></div>
+      <div class="stream-filters">
+        <select id="streamSessionFilter" onchange="loadStream()"><option value="">All sessions</option></select>
+        <select id="streamStatusFilter" onchange="loadStream()"><option value="">All status</option><option value="pending">Pending</option><option value="distilled">Distilled</option><option value="pinned">Pinned</option></select>
+      </div>
+    </div>
+    <div id="streamStats" class="stream-stats-bar"></div>
+    <div id="streamResults"></div>
+  </div>
   <div id="import-view" style="display:none">
     <div class="import-section">
       <h3>File Upload</h3>
@@ -281,7 +311,7 @@ var batchMode = false;
 var selectedIds = new Set();
 var reviewDaysAgo = 7;
 var STATUSES = {hypothesis:'? Hypothesis',conviction:'! Conviction',fact:'\\u2713 Fact',outdated:'\\u2717 Outdated',question:'? Question'};
-var TABS = ['search','timeline','recent','review','compost','duplicates','import','activity','stats'];
+var TABS = ['search','timeline','recent','review','compost','duplicates','stream','import','activity','stats'];
 
 function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 function escAttr(s) { return esc(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;'); }
@@ -346,6 +376,7 @@ function switchTab(tab) {
   if (tab === 'recent') loadRecent();
   if (tab === 'compost') loadCompost();
   if (tab === 'duplicates') loadDuplicates();
+  if (tab === 'stream') loadStream();
   if (tab === 'activity') loadActivity();
   if (tab === 'stats') loadStats();
   if (tab === 'review') loadReview();
@@ -584,6 +615,100 @@ async function dupMerge(keepId, removeId) {
     var r = await fetch(API + '/duplicates/merge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keep_id: keepId, remove_id: removeId }) });
     if (!r.ok) { var d = await r.json(); throw new Error(d.error || 'Failed'); }
     loadDuplicates();
+  } catch(err) { await modalAlert(err.message, 'Error'); }
+}
+
+// --- Stream ---
+var streamSearchTimer = null;
+
+async function loadStream() {
+  var sessionFilter = document.getElementById('streamSessionFilter').value;
+  var statusFilter = document.getElementById('streamStatusFilter').value;
+  var searchVal = document.getElementById('streamSearchInput').value.trim();
+  var params = new URLSearchParams({ limit: '100' });
+  if (sessionFilter) params.set('session_id', sessionFilter);
+  if (statusFilter) params.set('status', statusFilter);
+  if (searchVal) params.set('search', searchVal);
+
+  try {
+    var [blocksRes, statsRes, sessionsRes] = await Promise.all([
+      fetch(API + '/stream?' + params.toString()),
+      fetch(API + '/stream/stats'),
+      fetch(API + '/stream/sessions?limit=50'),
+    ]);
+    var blocksData = await blocksRes.json();
+    var statsData = await statsRes.json();
+    var sessionsData = await sessionsRes.json();
+
+    // Stats bar
+    var statsEl = document.getElementById('streamStats');
+    statsEl.innerHTML = 'Blocks: <span>' + statsData.total_blocks + '</span> | Sessions: <span>' + statsData.total_sessions + '</span> | Pending: <span>' + statsData.pending_blocks + '</span> | Distilled: <span>' + statsData.distilled_blocks + '</span> | Pinned: <span>' + statsData.pinned_blocks + '</span>';
+
+    // Session filter dropdown
+    var sel = document.getElementById('streamSessionFilter');
+    var curVal = sel.value;
+    var opts = '<option value="">All sessions</option>';
+    (sessionsData.sessions || []).forEach(function(s) {
+      var label = (s.topic || s.session_id.slice(0, 16)) + ' (' + s.block_count + ')';
+      opts += '<option value="' + escAttr(s.session_id) + '"' + (s.session_id === curVal ? ' selected' : '') + '>' + esc(label) + '</option>';
+    });
+    sel.innerHTML = opts;
+
+    // Blocks
+    var container = document.getElementById('streamResults');
+    if (!blocksData.blocks || blocksData.blocks.length === 0) {
+      container.innerHTML = '<div style="color:#555;text-align:center;padding:40px">No stream blocks yet</div>';
+      return;
+    }
+
+    container.innerHTML = blocksData.blocks.map(function(b) {
+      var cls = 'stream-block';
+      if (b.pinned) cls += ' pinned';
+      if (b.distilled) cls += ' distilled';
+      var date = b.created_at ? new Date(b.created_at).toLocaleString() : '';
+      var expires = b.expires_at ? new Date(b.expires_at).toLocaleDateString() : '';
+      var participants = (b.participants || []).join(', ');
+
+      return '<div class="' + cls + '">' +
+        '<div class="stream-header">' +
+          '<div>' +
+            '<span class="stream-session-badge">' + esc(b.session_id.slice(0, 16)) + ' #' + b.block_number + '</span>' +
+            (b.topic ? ' <span class="stream-topic">' + esc(b.topic) + '</span>' : '') +
+          '</div>' +
+          '<div class="stream-actions">' +
+            '<button onclick="toggleStreamPin(\\'' + b.id + '\\', ' + !b.pinned + ')">' + (b.pinned ? 'Unpin' : 'Pin') + '</button>' +
+            '<button onclick="deleteStreamBlock(\\'' + b.id + '\\')" style="color:#a66">Delete</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="stream-content">' + esc(b.content) + '</div>' +
+        '<div class="stream-meta">' +
+          '<span>' + esc(date) + '</span>' +
+          (b.source_client ? '<span>via ' + esc(b.source_client) + '</span>' : '') +
+          (participants ? '<span>Participants: ' + esc(participants) + '</span>' : '') +
+          (b.distilled ? '<span style="color:#4a9">distilled</span>' : '') +
+          (expires && !b.pinned ? '<span>expires ' + esc(expires) + '</span>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch(err) {
+    document.getElementById('streamResults').innerHTML = '<div style="color:#a66;text-align:center;padding:20px">Error loading stream: ' + esc(err.message) + '</div>';
+  }
+}
+
+async function toggleStreamPin(id, pinned) {
+  try {
+    var r = await fetch(API + '/stream/' + id + '/pin', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: pinned }) });
+    if (!r.ok) { var d = await r.json(); throw new Error(d.error || 'Failed'); }
+    loadStream();
+  } catch(err) { await modalAlert(err.message, 'Error'); }
+}
+
+async function deleteStreamBlock(id) {
+  if (!await modalConfirm('Delete this stream block?', { title: 'Delete Block', okLabel: 'Delete' })) return;
+  try {
+    var r = await fetch(API + '/stream/' + id, { method: 'DELETE' });
+    if (!r.ok) { var d = await r.json(); throw new Error(d.error || 'Failed'); }
+    loadStream();
   } catch(err) { await modalAlert(err.message, 'Error'); }
 }
 
@@ -959,6 +1084,8 @@ document.getElementById('searchInput').addEventListener('input', function(e) { c
 document.getElementById('searchInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { clearTimeout(debounceTimer); search(e.target.value); } });
 document.getElementById('timelineInput').addEventListener('input', function(e) { clearTimeout(timelineTimer); timelineTimer = setTimeout(function() { searchTimeline(e.target.value); }, 600); });
 document.getElementById('timelineInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { clearTimeout(timelineTimer); searchTimeline(e.target.value); } });
+document.getElementById('streamSearchInput').addEventListener('input', function(e) { clearTimeout(streamSearchTimer); streamSearchTimer = setTimeout(function() { loadStream(); }, 500); });
+document.getElementById('streamSearchInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { clearTimeout(streamSearchTimer); loadStream(); } });
 fetch(API + '/stats').then(function(r) { return r.json(); }).then(function(s) { document.getElementById('totalCount').textContent = s.total + ' thoughts'; }).catch(function() {});
 setupDropZone();
 </script>
