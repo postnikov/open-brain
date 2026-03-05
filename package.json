@@ -1,0 +1,42 @@
+{
+  "name": "open-brain",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Personal thought capture and semantic search system",
+  "bin": {
+    "brain": "./src/cli.ts"
+  },
+  "scripts": {
+    "dev": "node --env-file=.env --import tsx/esm src/index.ts",
+    "server": "node --env-file=.env --import tsx/esm src/server.ts",
+    "cli": "node --env-file=.env --import tsx/esm src/cli.ts",
+    "build": "tsc",
+    "migrate": "node --env-file=.env --import tsx/esm src/db/migrate.ts",
+    "generate": "drizzle-kit generate",
+    "index": "node --env-file=.env --import tsx/esm src/scripts/index-obsidian.ts",
+    "export": "node --env-file=.env --import tsx/esm src/scripts/export.ts",
+    "export:md": "node --env-file=.env --import tsx/esm src/scripts/export.ts markdown",
+    "backup": "bash src/scripts/backup.sh",
+    "test": "vitest",
+    "test:api": "bash scripts/test-api.sh"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "commander": "^13.1.0",
+    "drizzle-orm": "^0.39.3",
+    "openai": "^4.85.4",
+    "pg": "^8.13.3",
+    "pgvector": "^0.2.0",
+    "pino": "^9.6.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/pg": "^8.11.11",
+    "drizzle-kit": "^0.30.5",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.6"
+  }
+}

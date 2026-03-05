@@ -1,0 +1,19 @@
+import type { AppConfig } from './schema.js'
+
+export const DEFAULT_CONFIG: AppConfig = {
+  database: {
+    host: 'localhost',
+    port: 5432,
+    database: 'open_brain',
+    user: 'open_brain',
+    password: 'open_brain_local',
+  },
+  openai: {
+    embedding_model: 'text-embedding-3-small',
+    metadata_model: 'gpt-4o-mini',
+  },
+  capture: {
+    auto_tag: true,
+    auto_title: true,
+  },
+}
