@@ -5,7 +5,7 @@ Personal thought capture and semantic search system. A second brain with AI-powe
 ## Quick Start (Docker)
 
 ```bash
-git clone https://github.com/maxpostnikov/open-brain.git
+git clone https://github.com/postnikov/open-brain.git
 cd open-brain
 cp .env.example .env
 # Edit .env and add your OPENAI_API_KEY
@@ -19,7 +19,7 @@ Open http://localhost:3100
 Requires Node.js 20+, PostgreSQL 14+ with [pgvector](https://github.com/pgvector/pgvector).
 
 ```bash
-git clone https://github.com/maxpostnikov/open-brain.git
+git clone https://github.com/postnikov/open-brain.git
 cd open-brain
 ./setup.sh
 npm run server
@@ -33,13 +33,14 @@ Open http://localhost:3100
 
 **Semantic Search** finds thoughts by meaning, not just keywords. Powered by OpenAI embeddings + pgvector cosine similarity.
 
-**Web UI** with 7 tabs:
+**Web UI** with 8 tabs:
 - **Search** — semantic search with similarity scores
 - **Timeline** — see how your thinking evolves on a topic over time
 - **Recent** — latest thoughts with source filters
 - **Review** — weekly reflection: revisit past thoughts (still true? evolved? let go?)
 - **Compost** — thoughts you're letting go, dissolving in 30 days
 - **Duplicates** — find and resolve near-duplicate thoughts
+- **Activity** — real-time feed of all MCP tool calls (who, when, what, latency)
 - **Stats** — counts by source, type, orphan tags
 
 **Thought Controls:**
@@ -49,11 +50,17 @@ Open http://localhost:3100
 - Batch operations — select multiple, bulk delete/compost/tag/status
 - Custom modal dialogs (no browser alerts)
 
-**MCP Server** for Claude Desktop, Cursor, and other MCP clients:
-- `brain_save` — capture a thought
-- `brain_search` — semantic search
+**MCP Server** with 8 tools for Claude Desktop, Cursor, and other MCP clients:
+- `brain_save` — capture a thought with auto-embedding and metadata
+- `brain_search` — semantic search with filters
 - `brain_recent` — latest thoughts
+- `brain_related` — find semantically similar thoughts by ID
 - `brain_stats` — database statistics
+- `brain_tags` — list all tags with counts
+- `brain_tag_rename` — rename or merge tags
+- `brain_delete` — delete a thought by ID
+
+All MCP tool calls are logged to the Activity Feed for full transparency.
 
 **CLI** for terminal workflows:
 ```bash
@@ -89,7 +96,9 @@ npm run cli -- stats
      └───────────────────┘
 ```
 
-## Claude Desktop Configuration
+## MCP Configuration
+
+### Claude Desktop (stdio mode)
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -104,6 +113,14 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   }
 }
 ```
+
+### HTTP mode (Cursor, OpenClaw, multiple clients)
+
+Start the server: `npm run server`
+
+The MCP endpoint is available at `http://localhost:3100/mcp` (Streamable HTTP transport). Clients connect via POST with session management through `mcp-session-id` header.
+
+All tool calls from any connected client are logged to the **Activity** tab in the web UI.
 
 ## API Endpoints
 
@@ -129,6 +146,9 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | POST | `/api/duplicates/merge` | Merge duplicate pair |
 | POST | `/api/duplicates/dismiss` | Dismiss duplicate pair |
 | PUT | `/api/tags/rename` | Rename/merge tags |
+| DELETE | `/api/tags/:tag/from/:thoughtId` | Remove tag from thought |
+| GET | `/api/activity` | MCP tool call log |
+| GET | `/api/activity/stats` | Activity statistics |
 
 ## Configuration
 
@@ -149,7 +169,7 @@ npm run server      # Web server + MCP HTTP
 npm run dev         # MCP stdio server (for Claude Desktop)
 npm run cli         # CLI tool
 npm run migrate     # Run database migrations
-npm run test:api    # API smoke tests (24 tests)
+npm run test:api    # API smoke tests (26 tests)
 npm run index       # Index Obsidian vault
 npm run export      # Export to JSON
 npm run export:md   # Export to Markdown

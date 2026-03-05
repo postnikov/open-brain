@@ -69,7 +69,10 @@ async function main(): Promise<void> {
         sessionIdGenerator: () => randomUUID(),
       })
 
-      const server = createMcpServer(services)
+      const server = createMcpServer(services, () => {
+        const info = server.server.getClientVersion()
+        return { name: info?.name, version: info?.version }
+      })
 
       transport.onclose = () => {
         const sid = transport.sessionId

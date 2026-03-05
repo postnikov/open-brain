@@ -112,6 +112,52 @@ export const HTML = `<!DOCTYPE html>
   .dup-actions button.dup-danger:hover { background: #2a1a1a; color: #c44; }
   @media (max-width: 600px) { .dup-body { flex-direction: column; } .dup-side + .dup-side { border-left: none; border-top: 1px solid #222; } }
 
+  .activity-entry { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; background: #111; border: 1px solid #222; border-radius: 8px; margin-bottom: 8px; }
+  .activity-entry:hover { border-color: #444; }
+  .activity-entry.error { border-left: 3px solid #a44; }
+  .activity-icon { font-size: 18px; flex-shrink: 0; width: 28px; text-align: center; padding-top: 2px; }
+  .activity-body { flex: 1; min-width: 0; }
+  .activity-header { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+  .activity-tool { font-weight: 600; color: #fff; font-size: 13px; }
+  .activity-client { font-size: 11px; padding: 1px 8px; border-radius: 3px; background: #1a1a2a; color: #88a; }
+  .activity-duration { font-size: 11px; color: #666; }
+  .activity-time { font-size: 11px; color: #555; margin-left: auto; }
+  .activity-summary { font-size: 13px; color: #aaa; }
+  .activity-output { font-size: 12px; color: #666; margin-top: 2px; }
+  .activity-error { font-size: 12px; color: #a66; margin-top: 2px; }
+  .activity-filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .activity-filters button { padding: 4px 10px; background: #1a1a1a; border: 1px solid #333; border-radius: 12px; font-size: 12px; color: #999; cursor: pointer; }
+  .activity-filters button:hover, .activity-filters button.active { background: #333; color: #fff; border-color: #555; }
+
+  .import-section { background: #111; border: 1px solid #222; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+  .import-section h3 { color: #fff; font-size: 15px; margin-bottom: 12px; }
+  .drop-zone { border: 2px dashed #333; border-radius: 8px; padding: 32px; text-align: center; color: #555; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+  .drop-zone:hover, .drop-zone.dragover { border-color: #4a9; background: #0d1a0d; color: #4a9; }
+  .drop-zone input[type="file"] { display: none; }
+  .file-list { margin-top: 12px; }
+  .file-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #1a1a1a; border-radius: 4px; margin-bottom: 4px; font-size: 13px; }
+  .file-item .file-name { color: #aaa; }
+  .file-item .file-size { color: #666; font-size: 11px; }
+  .file-item button { background: none; border: none; color: #555; cursor: pointer; font-size: 14px; }
+  .file-item button:hover { color: #c44; }
+  .import-controls { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+  .import-controls select, .import-controls input { padding: 6px 10px; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; color: #fff; font-size: 13px; }
+  .import-controls button { padding: 8px 18px; border-radius: 6px; border: 1px solid #2a4a2a; background: #1a3a1a; color: #6a6; cursor: pointer; font-size: 13px; }
+  .import-controls button:hover { background: #2a4a2a; }
+  .import-controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .vault-files { max-height: 300px; overflow-y: auto; margin-top: 12px; border: 1px solid #222; border-radius: 6px; }
+  .vault-file { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px; border-bottom: 1px solid #1a1a1a; }
+  .vault-file:last-child { border-bottom: none; }
+  .vault-file input[type="checkbox"] { accent-color: #4a9; }
+  .vault-file .vf-path { color: #aaa; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vault-file .vf-size { color: #666; font-size: 11px; flex-shrink: 0; }
+  .progress-box { background: #111; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-top: 16px; }
+  .progress-bar { height: 6px; background: #222; border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
+  .progress-fill { height: 100%; background: #4a9; border-radius: 3px; transition: width 0.3s; }
+  .progress-text { font-size: 13px; color: #aaa; }
+  .progress-detail { font-size: 12px; color: #666; margin-top: 4px; }
+  .progress-errors { font-size: 12px; color: #a66; margin-top: 6px; }
+
   .review-nav { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; }
   .review-nav button { background: #1a1a1a; border: 1px solid #333; color: #999; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .review-nav button:hover { color: #fff; border-color: #555; }
@@ -174,6 +220,8 @@ export const HTML = `<!DOCTYPE html>
     <div class="tab" data-tab="review" onclick="switchTab('review')">Review</div>
     <div class="tab" data-tab="compost" onclick="switchTab('compost')">Compost</div>
     <div class="tab" data-tab="duplicates" onclick="switchTab('duplicates')">Duplicates</div>
+    <div class="tab" data-tab="import" onclick="switchTab('import')">Import</div>
+    <div class="tab" data-tab="activity" onclick="switchTab('activity')">Activity</div>
     <div class="tab" data-tab="stats" onclick="switchTab('stats')">Stats</div>
   </div>
 
@@ -183,6 +231,31 @@ export const HTML = `<!DOCTYPE html>
   <div id="review-view" style="display:none"><div class="review-nav"><button data-action="review-earlier">\\u2190 Earlier</button><span class="review-label" id="reviewLabel">7 days ago</span><button data-action="review-later">Later \\u2192</button></div><div id="reviewResults"></div></div>
   <div id="compost-view" style="display:none"><div id="compostResults"></div></div>
   <div id="duplicates-view" style="display:none"><div id="duplicatesResults"></div></div>
+  <div id="import-view" style="display:none">
+    <div class="import-section">
+      <h3>File Upload</h3>
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        Drag & drop .md or .txt files here, or click to browse
+        <input type="file" id="fileInput" multiple accept=".md,.txt">
+      </div>
+      <div class="file-list" id="uploadFileList"></div>
+      <div class="import-controls" id="uploadControls" style="display:none">
+        <label style="color:#666;font-size:12px">Source:</label>
+        <select id="uploadSource"><option>upload</option><option>obsidian</option><option>telegram</option><option>cli</option></select>
+        <button id="uploadBtn" onclick="startFileUpload()">Import files</button>
+      </div>
+    </div>
+    <div class="import-section">
+      <h3>Obsidian Vault</h3>
+      <div class="import-controls">
+        <input type="text" id="vaultPath" placeholder="/path/to/obsidian/vault" style="flex:1">
+        <button onclick="scanVault()">Scan</button>
+      </div>
+      <div id="vaultResults"></div>
+    </div>
+    <div id="importProgress"></div>
+  </div>
+  <div id="activity-view" style="display:none"><div id="activityStats"></div><div class="activity-filters" id="activityFilters"></div><div id="activityResults"></div></div>
   <div id="stats-view" style="display:none"><div id="statsContent"></div></div>
 
   <div id="status"></div>
@@ -208,7 +281,7 @@ var batchMode = false;
 var selectedIds = new Set();
 var reviewDaysAgo = 7;
 var STATUSES = {hypothesis:'? Hypothesis',conviction:'! Conviction',fact:'\\u2713 Fact',outdated:'\\u2717 Outdated',question:'? Question'};
-var TABS = ['search','timeline','recent','review','compost','duplicates','stats'];
+var TABS = ['search','timeline','recent','review','compost','duplicates','import','activity','stats'];
 
 function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 function escAttr(s) { return esc(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;'); }
@@ -273,6 +346,7 @@ function switchTab(tab) {
   if (tab === 'recent') loadRecent();
   if (tab === 'compost') loadCompost();
   if (tab === 'duplicates') loadDuplicates();
+  if (tab === 'activity') loadActivity();
   if (tab === 'stats') loadStats();
   if (tab === 'review') loadReview();
 }
@@ -513,6 +587,173 @@ async function dupMerge(keepId, removeId) {
   } catch(err) { await modalAlert(err.message, 'Error'); }
 }
 
+// --- Import ---
+var pendingFiles = [];
+var importPollTimer = null;
+
+function setupDropZone() {
+  var dz = document.getElementById('dropZone');
+  dz.addEventListener('dragover', function(e) { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', function() { dz.classList.remove('dragover'); });
+  dz.addEventListener('drop', function(e) { e.preventDefault(); dz.classList.remove('dragover'); addFiles(e.dataTransfer.files); });
+  document.getElementById('fileInput').addEventListener('change', function(e) { addFiles(e.target.files); e.target.value = ''; });
+}
+
+function addFiles(fileList) {
+  Array.from(fileList).forEach(function(f) {
+    if (!f.name.match(/\\.(md|txt)$/i)) return;
+    var reader = new FileReader();
+    reader.onload = function() {
+      pendingFiles.push({ name: f.name, content: reader.result, size: f.size });
+      renderPendingFiles();
+    };
+    reader.readAsText(f);
+  });
+}
+
+function renderPendingFiles() {
+  var el = document.getElementById('uploadFileList');
+  if (pendingFiles.length === 0) { el.innerHTML = ''; document.getElementById('uploadControls').style.display = 'none'; return; }
+  document.getElementById('uploadControls').style.display = 'flex';
+  document.getElementById('uploadBtn').textContent = 'Import ' + pendingFiles.length + ' file' + (pendingFiles.length > 1 ? 's' : '');
+  el.innerHTML = pendingFiles.map(function(f, i) {
+    return '<div class="file-item"><span class="file-name">' + esc(f.name) + '</span><span class="file-size">' + formatSize(f.size) + '</span><button onclick="removePendingFile(' + i + ')">\\u2715</button></div>';
+  }).join('');
+}
+
+function removePendingFile(i) { pendingFiles.splice(i, 1); renderPendingFiles(); }
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + 'B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB';
+  return (bytes / 1024 / 1024).toFixed(1) + 'MB';
+}
+
+async function startFileUpload() {
+  if (pendingFiles.length === 0) return;
+  var source = document.getElementById('uploadSource').value;
+  var files = pendingFiles.map(function(f) { return { name: f.name, content: f.content }; });
+  try {
+    var r = await fetch(API + '/import/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files: files, source: source }) });
+    var data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Failed');
+    pendingFiles = [];
+    renderPendingFiles();
+    startProgressPoll();
+  } catch(err) { await modalAlert(err.message, 'Import Error'); }
+}
+
+async function scanVault() {
+  var path = document.getElementById('vaultPath').value.trim();
+  if (!path) return;
+  document.getElementById('vaultResults').innerHTML = '<div class="loading">Scanning...</div>';
+  try {
+    var r = await fetch(API + '/import/obsidian/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: path }) });
+    var data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Scan failed');
+    if (data.files.length === 0) { document.getElementById('vaultResults').innerHTML = '<div class="empty">No .md files found in this path</div>'; return; }
+    var html = '<div style="display:flex;gap:8px;margin:12px 0"><button onclick="toggleAllVault(true)">Select All</button><button onclick="toggleAllVault(false)">Clear</button><span style="color:#666;font-size:12px;line-height:28px">' + data.total + ' files</span></div>';
+    html += '<div class="vault-files">';
+    data.files.forEach(function(f) {
+      html += '<div class="vault-file"><input type="checkbox" checked data-path="' + escAttr(f.path) + '"><span class="vf-path" title="' + escAttr(f.path) + '">' + esc(f.path) + '</span><span class="vf-size">' + formatSize(f.size) + '</span></div>';
+    });
+    html += '</div>';
+    html += '<div class="import-controls" style="margin-top:12px"><button onclick="startVaultImport()">Import Selected</button></div>';
+    document.getElementById('vaultResults').innerHTML = html;
+  } catch(err) { document.getElementById('vaultResults').innerHTML = '<div class="empty">Error: ' + esc(err.message) + '</div>'; }
+}
+
+function toggleAllVault(checked) {
+  document.querySelectorAll('.vault-file input[type="checkbox"]').forEach(function(cb) { cb.checked = checked; });
+}
+
+async function startVaultImport() {
+  var path = document.getElementById('vaultPath').value.trim();
+  var selected = [];
+  document.querySelectorAll('.vault-file input[type="checkbox"]:checked').forEach(function(cb) { selected.push(cb.dataset.path); });
+  if (selected.length === 0) { await modalAlert('No files selected', 'Import'); return; }
+  try {
+    var r = await fetch(API + '/import/obsidian/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: path, files: selected }) });
+    var data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Failed');
+    startProgressPoll();
+  } catch(err) { await modalAlert(err.message, 'Import Error'); }
+}
+
+function startProgressPoll() {
+  if (importPollTimer) clearInterval(importPollTimer);
+  updateImportProgress();
+  importPollTimer = setInterval(updateImportProgress, 2000);
+}
+
+async function updateImportProgress() {
+  try {
+    var r = await fetch(API + '/import/status');
+    var p = await r.json();
+    var pct = p.total > 0 ? Math.round(p.processed / p.total * 100) : 0;
+    var html = '<div class="progress-box">';
+    html += '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
+    html += '<div class="progress-text">' + (p.running ? 'Importing...' : 'Done!') + ' ' + p.processed + '/' + p.total + ' (' + pct + '%)</div>';
+    if (p.skipped > 0) html += '<div class="progress-detail">Skipped: ' + p.skipped + ' duplicates</div>';
+    if (p.lastFile) html += '<div class="progress-detail">Last: ' + esc(p.lastFile) + '</div>';
+    if (p.errors.length > 0) html += '<div class="progress-errors">Errors: ' + p.errors.map(esc).join('<br>') + '</div>';
+    html += '</div>';
+    document.getElementById('importProgress').innerHTML = html;
+    if (!p.running && importPollTimer) { clearInterval(importPollTimer); importPollTimer = null; }
+  } catch(e) {}
+}
+
+// --- Activity ---
+var activityToolFilter = '';
+var TOOL_ICONS = {brain_save:'\\ud83d\\udcbe',brain_search:'\\ud83d\\udd0d',brain_recent:'\\ud83d\\udd53',brain_related:'\\ud83d\\udd17',brain_stats:'\\ud83d\\udcca',brain_tags:'\\ud83c\\udff7',brain_tag_rename:'\\u270e',brain_delete:'\\ud83d\\uddd1'};
+
+async function loadActivity() {
+  document.getElementById('activityResults').innerHTML = '<div class="loading">Loading activity...</div>';
+  try {
+    var statsR = await fetch(API + '/activity/stats');
+    var stats = await statsR.json();
+    var sh = '<div class="stats-grid">' +
+      '<div class="stat-card"><div class="stat-value">' + stats.total_calls + '</div><div class="stat-label">Total calls</div></div>' +
+      '<div class="stat-card"><div class="stat-value">' + stats.today + '</div><div class="stat-label">Today</div></div>' +
+      '<div class="stat-card"><div class="stat-value">' + stats.avg_duration_ms + 'ms</div><div class="stat-label">Avg latency</div></div>' +
+      '<div class="stat-card"><div class="stat-value">' + Object.keys(stats.by_client || {}).length + '</div><div class="stat-label">Clients</div></div></div>';
+    document.getElementById('activityStats').innerHTML = sh;
+
+    // Filter chips
+    var tools = Object.keys(stats.by_tool || {});
+    var fh = '<button class="' + (!activityToolFilter ? 'active' : '') + '" onclick="activityToolFilter=\\'\\';loadActivity()">All</button>';
+    tools.forEach(function(t) { fh += '<button class="' + (activityToolFilter === t ? 'active' : '') + '" onclick="activityToolFilter=\\'' + escAttr(t) + '\\';loadActivity()">' + esc(t.replace('brain_','')) + ' (' + stats.by_tool[t] + ')</button>'; });
+    document.getElementById('activityFilters').innerHTML = fh;
+
+    var url = API + '/activity?limit=50';
+    if (activityToolFilter) url += '&tool=' + encodeURIComponent(activityToolFilter);
+    var r = await fetch(url);
+    var data = await r.json();
+    if (!data.entries || data.entries.length === 0) {
+      document.getElementById('activityResults').innerHTML = '<div class="empty">No activity yet. MCP tool calls will appear here.</div>';
+      return;
+    }
+    document.getElementById('activityResults').innerHTML = data.entries.map(function(e) {
+      var icon = TOOL_ICONS[e.tool_name] || '\\u2699';
+      var time = e.created_at ? new Date(e.created_at).toLocaleTimeString() : '';
+      var date = e.created_at ? new Date(e.created_at).toLocaleDateString() : '';
+      return '<div class="activity-entry' + (e.status === 'error' ? ' error' : '') + '">' +
+        '<div class="activity-icon">' + icon + '</div>' +
+        '<div class="activity-body">' +
+          '<div class="activity-header">' +
+            '<span class="activity-tool">' + esc(e.tool_name) + '</span>' +
+            (e.client_name ? '<span class="activity-client">' + esc(e.client_name) + '</span>' : '') +
+            '<span class="activity-duration">' + (e.duration_ms || 0) + 'ms</span>' +
+            '<span class="activity-time">' + date + ' ' + time + '</span>' +
+          '</div>' +
+          (e.input_summary ? '<div class="activity-summary">' + esc(e.input_summary) + '</div>' : '') +
+          (e.output_summary && e.status !== 'error' ? '<div class="activity-output">' + esc(e.output_summary) + '</div>' : '') +
+          (e.error_message ? '<div class="activity-error">' + esc(e.error_message) + '</div>' : '') +
+        '</div></div>';
+    }).join('');
+  } catch(e) { document.getElementById('activityResults').innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>'; }
+}
+
 // --- Stats ---
 async function loadStats() {
   document.getElementById('statsContent').innerHTML = '<div class="loading">Loading...</div>';
@@ -719,6 +960,7 @@ document.getElementById('searchInput').addEventListener('keydown', function(e) {
 document.getElementById('timelineInput').addEventListener('input', function(e) { clearTimeout(timelineTimer); timelineTimer = setTimeout(function() { searchTimeline(e.target.value); }, 600); });
 document.getElementById('timelineInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { clearTimeout(timelineTimer); searchTimeline(e.target.value); } });
 fetch(API + '/stats').then(function(r) { return r.json(); }).then(function(s) { document.getElementById('totalCount').textContent = s.total + ' thoughts'; }).catch(function() {});
+setupDropZone();
 </script>
 </body>
 </html>`

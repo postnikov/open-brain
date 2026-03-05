@@ -136,6 +136,42 @@ R=$(curl -s -X POST "$BASE/api/duplicates/merge" \
   -H 'Content-Type: application/json' -d '{"keep_id":"00000000-0000-0000-0000-000000000001","remove_id":"00000000-0000-0000-0000-000000000002"}')
 check "POST /api/duplicates/merge (not found)" '"error"' "$R"
 
+# --- Activity ---
+echo ""
+echo "── Activity ──"
+
+R=$(curl -sf "$BASE/api/activity?limit=5")
+check "GET /api/activity" '"entries"' "$R"
+
+R=$(curl -sf "$BASE/api/activity/stats")
+check "GET /api/activity/stats" '"total_calls"' "$R"
+CALLS=$(echo "$R" | python3 -c "import json,sys; print(json.load(sys.stdin)['total_calls'])" 2>/dev/null)
+gray "    → $CALLS total calls logged"
+
+# --- Import ---
+echo ""
+echo "── Import ──"
+
+R=$(curl -sf "$BASE/api/import/status")
+check "GET /api/import/status" '"running"' "$R"
+
+R=$(curl -sf -X POST "$BASE/api/import/files" \
+  -H 'Content-Type: application/json' \
+  -d '{"files":[{"name":"test.md","content":"# Test Import\\nThis is a test thought from API smoke test."}],"source":"test"}')
+check "POST /api/import/files" '"started":true' "$R"
+
+# Wait for import to complete (embed call takes ~5s)
+sleep 8
+
+R=$(curl -sf "$BASE/api/import/status")
+check "Import completed" '"running":false' "$R"
+IMPORTED=$(echo "$R" | python3 -c "import json,sys; p=json.load(sys.stdin); print('processed:', p['processed'], 'skipped:', p['skipped'])" 2>/dev/null)
+gray "    → $IMPORTED"
+
+R=$(curl -s -X POST "$BASE/api/import/obsidian/scan" \
+  -H 'Content-Type: application/json' -d '{"path":"/nonexistent/path"}')
+check "Obsidian scan bad path → error" '"error"' "$R"
+
 # --- Validation ---
 echo ""
 echo "── Validation ──"

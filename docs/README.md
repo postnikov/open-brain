@@ -280,70 +280,63 @@ Open Brain предоставляет 8 MCP tools, доступных из Claud
 
 Доступен по адресу: **http://localhost:3100**
 
-Три вкладки:
-- **Search** — семантический поиск с debounce (400мс), результаты с процентом похожести
-- **Recent** — последние 50 записей с превью
-- **Stats** — визуальные карточки: total, 7/30 дней, по источникам, по типам
+8 вкладок:
+- **Search** — семантический поиск с debounce, результаты с процентом похожести
+- **Timeline** — хронологический поиск по теме: как менялось мышление со временем
+- **Recent** — последние записи с фильтрами по источнику
+- **Review** — еженедельная рефлексия: «что ты думал N дней назад?» с действиями Still true / Evolved / Let go
+- **Compost** — мысли, которые ты отпускаешь (растворяются через 30 дней)
+- **Duplicates** — обнаружение и разрешение дубликатов (merge / keep / dismiss)
+- **Activity** — лента всех MCP tool calls: кто обратился, что спросил, что получил, latency
+- **Stats** — статистика: total, 7/30 дней, по источникам, по типам, orphan-теги
 
-Тёмная тема. Мысли с длинным контентом сворачиваются, клик разворачивает.
+Контроль на каждой карточке:
+- **Inline editing** — редактирование на месте с пересчётом эмбеддинга
+- **Fade/Amplify** — управление весом мысли в поиске
+- **Epistemic status** — метки: hypothesis, conviction, fact, outdated, question
+- **Batch operations** — множественный выбор, массовые действия
+- **Модальные диалоги** — кастомные окна подтверждения вместо браузерных
+
+Тёмная тема. Responsive layout.
 
 ---
 
 ## REST API
 
-Все endpoints на `http://localhost:3100/api/`. CORS включён (`Access-Control-Allow-Origin: *`).
+Все endpoints на `http://localhost:3100/api/`. CORS включён.
 
-### GET /api/search
+### Чтение
 
-Семантический поиск.
+| Метод | Endpoint | Описание |
+|-------|----------|----------|
+| GET | `/api/search?q=query&limit=10` | Семантический поиск |
+| GET | `/api/recent?limit=20&source=obsidian` | Последние записи |
+| GET | `/api/timeline?q=topic&limit=30` | Хронологический поиск |
+| GET | `/api/stats` | Статистика |
+| GET | `/api/tags` | Все теги с количеством |
+| GET | `/api/tags/orphans` | Теги, использованные один раз |
+| GET | `/api/review?days_ago=7` | Мысли для рефлексии |
+| GET | `/api/compost` | Мысли в компосте |
+| GET | `/api/duplicates?min_similarity=0.92` | Пары дубликатов |
+| GET | `/api/questions` | Мысли со статусом "question" |
+| GET | `/api/activity?limit=50&tool=brain_search` | Лог MCP-вызовов |
+| GET | `/api/activity/stats` | Статистика активности |
 
-| Параметр | Обязательный | По умолчанию | Описание |
-|----------|-------------|-------------|----------|
-| `q` | да | — | Текст запроса |
-| `limit` | нет | 10 | Максимум результатов |
-| `min_similarity` | нет | 0.3 | Порог похожести |
+### Запись
 
-```bash
-curl "http://localhost:3100/api/search?q=storytelling&limit=5"
-```
-
-### GET /api/recent
-
-Последние записи.
-
-| Параметр | Обязательный | По умолчанию | Описание |
-|----------|-------------|-------------|----------|
-| `limit` | нет | 20 | Количество |
-| `source` | нет | все | Фильтр по источнику |
-
-```bash
-curl "http://localhost:3100/api/recent?limit=10&source=obsidian"
-```
-
-### GET /api/stats
-
-Статистика. Без параметров.
-
-```bash
-curl http://localhost:3100/api/stats
-```
-
-### GET /api/tags
-
-Все теги с количеством. Без параметров.
-
-```bash
-curl http://localhost:3100/api/tags
-```
-
-### GET /health
-
-Healthcheck.
-
-```bash
-curl http://localhost:3100/health
-# {"status":"ok","sessions":0}
-```
+| Метод | Endpoint | Описание |
+|-------|----------|----------|
+| PUT | `/api/thoughts/:id` | Обновить мысль (пересчёт эмбеддинга) |
+| DELETE | `/api/thoughts/:id` | Удалить мысль |
+| PATCH | `/api/thoughts/:id/weight` | Fade/Amplify (body: `{direction}`) |
+| PATCH | `/api/thoughts/:id/status` | Epistemic status (body: `{status}`) |
+| POST | `/api/thoughts/:id/compost` | Отправить в компост |
+| POST | `/api/thoughts/:id/restore` | Восстановить из компоста |
+| POST | `/api/thoughts/batch` | Массовые операции (body: `{ids, action, params}`) |
+| POST | `/api/duplicates/merge` | Объединить пару дубликатов |
+| POST | `/api/duplicates/dismiss` | Отклонить пару дубликатов |
+| PUT | `/api/tags/rename` | Переименовать/объединить тег |
+| DELETE | `/api/tags/:tag/from/:thoughtId` | Удалить тег с мысли |
 
 ---
 

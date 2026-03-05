@@ -54,6 +54,25 @@ CREATE INDEX IF NOT EXISTS idx_thoughts_composted ON thoughts (composted_at) WHE
 CREATE INDEX IF NOT EXISTS idx_thoughts_epistemic ON thoughts (epistemic_status) WHERE epistemic_status IS NOT NULL;
 `
 
+const ACTIVITY_LOG_SQL = `
+CREATE TABLE IF NOT EXISTS activity_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tool_name VARCHAR(100) NOT NULL,
+  client_name VARCHAR(255),
+  client_version VARCHAR(50),
+  session_id VARCHAR(36),
+  status VARCHAR(20) NOT NULL DEFAULT 'success',
+  duration_ms INTEGER,
+  input_summary TEXT,
+  output_summary TEXT,
+  error_message TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_tool ON activity_log (tool_name);
+CREATE INDEX IF NOT EXISTS idx_activity_client ON activity_log (client_name);
+`
+
 const DISMISSED_PAIRS_SQL = `
 CREATE TABLE IF NOT EXISTS dismissed_pairs (
   id_a UUID NOT NULL,
@@ -86,6 +105,9 @@ async function migrate(): Promise<void> {
 
     await client.query(DISMISSED_PAIRS_SQL)
     logger.info('Dismissed pairs table created')
+
+    await client.query(ACTIVITY_LOG_SQL)
+    logger.info('Activity log table created')
 
     logger.info('Migrations complete')
   } catch (error) {

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, varchar, timestamp, real, index, primaryKey, customType } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, varchar, timestamp, real, integer, index, primaryKey, customType } from 'drizzle-orm/pg-core'
 
 const vector = customType<{ data: number[]; driverParam: string }>({
   dataType() {
@@ -60,6 +60,28 @@ export const dismissedPairs = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.idA, table.idB] }),
+  ],
+)
+
+export const activityLog = pgTable(
+  'activity_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    toolName: varchar('tool_name', { length: 100 }).notNull(),
+    clientName: varchar('client_name', { length: 255 }),
+    clientVersion: varchar('client_version', { length: 50 }),
+    sessionId: varchar('session_id', { length: 36 }),
+    status: varchar('status', { length: 20 }).notNull().default('success'),
+    durationMs: integer('duration_ms'),
+    inputSummary: text('input_summary'),
+    outputSummary: text('output_summary'),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index('idx_activity_created').on(table.createdAt),
+    index('idx_activity_tool').on(table.toolName),
+    index('idx_activity_client').on(table.clientName),
   ],
 )
 

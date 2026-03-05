@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { CapturePipeline } from '../pipeline/capture.js'
 import type { EmbeddingService } from '../pipeline/embeddings.js'
 import type { ThoughtsRepository, SearchFilters } from '../repository/types.js'
+import type { ActivityLogger } from '../activity/logger.js'
+import { wrapToolHandler, type ClientInfo } from '../activity/middleware.js'
 import { logger } from '../shared/logger.js'
 
 export function registerTools(
@@ -10,7 +12,16 @@ export function registerTools(
   pipeline: CapturePipeline,
   embeddingService: EmbeddingService,
   repository: ThoughtsRepository,
+  activityLogger?: ActivityLogger,
+  getClientInfo?: () => ClientInfo,
 ): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const wrap = (name: string, handler: any) => {
+    if (activityLogger && getClientInfo) {
+      return wrapToolHandler(handler, name, activityLogger, getClientInfo)
+    }
+    return handler
+  }
   server.registerTool(
     'brain_save',
     {
@@ -23,7 +34,7 @@ export function registerTools(
         thought_at: z.string().optional().describe('When the thought occurred (ISO date)'),
       },
     },
-    async (args) => {
+    wrap('brain_save', async (args: Record<string, any>) => {
       try {
         const { thought } = await pipeline.capture({
           content: args.content,
@@ -55,7 +66,7 @@ export function registerTools(
           isError: true,
         }
       }
-    },
+    }),
   )
 
   server.registerTool(
@@ -73,7 +84,7 @@ export function registerTools(
         to_date: z.string().optional().describe('Filter: to date (ISO)'),
       },
     },
-    async (args) => {
+    wrap('brain_search', async (args: Record<string, any>) => {
       try {
         const embedding = await embeddingService.embed(args.query)
 
@@ -110,7 +121,7 @@ export function registerTools(
           isError: true,
         }
       }
-    },
+    }),
   )
 
   server.registerTool(
@@ -123,7 +134,7 @@ export function registerTools(
         content_type: z.string().optional().describe('Filter by content type'),
       },
     },
-    async (args) => {
+    wrap('brain_recent', async (args: Record<string, any>) => {
       try {
         const thoughts = await repository.findRecent(args.limit, {
           source: args.source,
@@ -153,7 +164,7 @@ export function registerTools(
           isError: true,
         }
       }
-    },
+    }),
   )
 
   server.registerTool(
@@ -165,7 +176,7 @@ export function registerTools(
         limit: z.number().int().min(1).max(20).default(5).describe('Max related thoughts to return'),
       },
     },
-    async (args) => {
+    wrap('brain_related', async (args: Record<string, any>) => {
       try {
         const source = await repository.findById(args.thought_id)
         if (!source) {
@@ -205,7 +216,7 @@ export function registerTools(
           isError: true,
         }
       }
-    },
+    }),
   )
 
   server.registerTool(
@@ -213,7 +224,7 @@ export function registerTools(
     {
       description: 'Get statistics about the thought database: total count, breakdown by source/type, activity over 7/30 days.',
     },
-    async () => {
+    wrap('brain_stats', async () => {
       try {
         const stats = await repository.getStats()
 
@@ -235,7 +246,7 @@ export function registerTools(
           isError: true,
         }
       }
-    },
+    }),
   )
 
   server.registerTool(
@@ -243,7 +254,7 @@ export function registerTools(
     {
       description: 'List all tags with their usage counts, sorted by frequency.',
     },
-    async () => {
+    wrap('brain_tags', async () => {
       try {
         const tags = await repository.listTags()
 
@@ -262,7 +273,7 @@ export function registerTools(
           isError: true,
         }
       }
-    },
+    }),
   )
 
   server.registerTool(
@@ -274,7 +285,7 @@ export function registerTools(
         new_tag: z.string().min(1).describe('New tag name (or existing tag to merge into)'),
       },
     },
-    async (args) => {
+    wrap('brain_tag_rename', async (args: Record<string, any>) => {
       try {
         const affected = await repository.renameTag(args.old_tag, args.new_tag)
 
@@ -295,7 +306,7 @@ export function registerTools(
           isError: true,
         }
       }
-    },
+    }),
   )
 
   server.registerTool(
@@ -306,7 +317,7 @@ export function registerTools(
         thought_id: z.string().uuid().describe('UUID of the thought to delete'),
       },
     },
-    async (args) => {
+    wrap('brain_delete', async (args: Record<string, any>) => {
       try {
         const thought = await repository.findById(args.thought_id)
         if (!thought) {
@@ -335,7 +346,7 @@ export function registerTools(
           isError: true,
         }
       }
-    },
+    }),
   )
 
   logger.info('All MCP tools registered')
