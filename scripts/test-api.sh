@@ -172,6 +172,48 @@ R=$(curl -s -X POST "$BASE/api/import/obsidian/scan" \
   -H 'Content-Type: application/json' -d '{"path":"/nonexistent/path"}')
 check "Obsidian scan bad path → error" '"error"' "$R"
 
+# --- Brain Status ---
+echo ""
+echo "── Brain Status ──"
+
+R=$(curl -sf "$BASE/api/brain/status")
+check "GET /api/brain/status" '"stream"' "$R"
+check "GET /api/brain/status (distillation)" '"distillation"' "$R"
+check "GET /api/brain/status (thoughts)" '"thoughts"' "$R"
+STREAM_TOTAL=$(echo "$R" | python3 -c "import json,sys; print(json.load(sys.stdin)['stream']['total_blocks'])" 2>/dev/null)
+gray "    → stream blocks: $STREAM_TOTAL"
+THOUGHTS_TOTAL=$(echo "$R" | python3 -c "import json,sys; print(json.load(sys.stdin)['thoughts']['total'])" 2>/dev/null)
+gray "    → total thoughts: $THOUGHTS_TOTAL"
+
+# --- Distillation ---
+echo ""
+echo "── Distillation ──"
+
+R=$(curl -sf "$BASE/api/distillation/status")
+check "GET /api/distillation/status" '"running"' "$R"
+IS_RUNNING=$(echo "$R" | python3 -c "import json,sys; print(json.load(sys.stdin)['running'])" 2>/dev/null)
+gray "    → running: $IS_RUNNING"
+
+R=$(curl -sf "$BASE/api/distillation/log?limit=5")
+check "GET /api/distillation/log" '"runs"' "$R"
+RUN_COUNT=$(echo "$R" | python3 -c "import json,sys; print(json.load(sys.stdin)['total'])" 2>/dev/null)
+gray "    → $RUN_COUNT runs logged"
+
+# Get first run ID for detail check
+RUN_ID=$(echo "$R" | python3 -c "import json,sys; r=json.load(sys.stdin)['runs']; print(r[0]['id'] if r else '')" 2>/dev/null)
+if [ -n "$RUN_ID" ]; then
+  R=$(curl -sf "$BASE/api/distillation/log/$RUN_ID")
+  check "GET /api/distillation/log/:id" '"thoughts_created"' "$R"
+  check "GET /api/distillation/log/:id (thought_ids)" '"thought_ids"' "$R"
+  THOUGHTS=$(echo "$R" | python3 -c "import json,sys; print(json.load(sys.stdin)['thoughts_created'])" 2>/dev/null)
+  gray "    → $THOUGHTS thoughts in run $RUN_ID"
+fi
+
+R=$(curl -sf "$BASE/api/distillation/log?limit=3")
+check "GET /api/distillation/log (limit)" '"runs"' "$R"
+RETURNED=$(echo "$R" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['runs']))" 2>/dev/null)
+gray "    → returned $RETURNED runs (limit=3)"
+
 # --- Validation ---
 echo ""
 echo "── Validation ──"

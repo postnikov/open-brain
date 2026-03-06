@@ -36,3 +36,10 @@ export class StreamError extends OpenBrainError {
     this.name = 'StreamError'
   }
 }
+
+export class DistillationError extends OpenBrainError {
+  constructor(message: string, cause?: unknown) {
+    super(message, 'DISTILLATION_ERROR', cause)
+    this.name = 'DistillationError'
+  }
+}

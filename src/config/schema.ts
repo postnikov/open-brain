@@ -23,11 +23,21 @@ export const streamConfigSchema = z.object({
   cleanup_on_startup: z.boolean().default(true),
 })
 
+export const distillationConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  schedule: z.string().default('0 3 * * *'),
+  model: z.string().default('gpt-4o-mini'),
+  temperature: z.number().min(0).max(2).default(0.3),
+  max_blocks_per_run: z.number().int().min(1).max(1000).default(200),
+  min_block_length: z.number().int().min(0).max(10000).default(50),
+})
+
 export const configSchema = z.object({
   database: databaseConfigSchema.default({}),
   openai: openaiConfigSchema.default({}),
   capture: captureConfigSchema.default({}),
   stream: streamConfigSchema.default({}),
+  distillation: distillationConfigSchema.default({}),
 })
 
 export type AppConfig = z.infer<typeof configSchema>

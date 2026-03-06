@@ -53,6 +53,7 @@ export interface StreamRepository {
   readonly findRecent: (limit: number, filters?: StreamFilters) => Promise<readonly StreamBlock[]>
   readonly listSessions: (limit: number) => Promise<readonly StreamSessionSummary[]>
   readonly findPendingForDistillation: (limit: number) => Promise<readonly StreamBlock[]>
+  readonly findExpiringBlocks: (days: number) => Promise<readonly StreamBlock[]>
   readonly markDistilled: (ids: readonly string[], runId: string) => Promise<number>
   readonly cleanupExpired: () => Promise<number>
   readonly getStats: () => Promise<StreamStats>

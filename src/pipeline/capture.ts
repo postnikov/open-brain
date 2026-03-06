@@ -1,8 +1,13 @@
+import { createHash } from 'node:crypto'
 import type { EmbeddingService } from './embeddings.js'
 import type { MetadataService } from './metadata.js'
 import type { ThoughtsRepository } from '../repository/types.js'
 import type { Thought } from '../repository/types.js'
 import { logger } from '../shared/logger.js'
+
+function contentHash(content: string): string {
+  return createHash('sha256').update(content.trim()).digest('hex').slice(0, 16)
+}
 
 export interface CaptureInput {
   readonly content: string
@@ -10,6 +15,7 @@ export interface CaptureInput {
   readonly contentType?: string
   readonly tags?: readonly string[]
   readonly thoughtAt?: Date
+  readonly sourceRef?: string
 }
 
 export interface CaptureResult {
@@ -44,6 +50,8 @@ export function createCapturePipeline(
         sentiment: metadata.sentiment,
         embedding,
         thoughtAt: input.thoughtAt,
+        contentHash: contentHash(input.content),
+        sourceRef: input.sourceRef,
       })
 
       logger.info({ id: thought.id, title: thought.title }, 'Thought captured')

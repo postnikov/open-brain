@@ -47,7 +47,11 @@ Search works by meaning, not keywords. Cross-language: a Russian query finds Eng
 
 ### Stream
 
-Raw conversation capture. When you talk to AI, the most productive thinking disappears after closing the chat. Stream captures conversation blocks with zero AI overhead — just a fast DB write. Blocks live for 30 days (configurable TTL), can be pinned to keep permanently, and will be distilled into proper thoughts in a future release.
+Raw conversation capture. When you talk to AI, the most productive thinking disappears after closing the chat. Stream captures conversation blocks with zero AI overhead — just a fast DB write. Blocks live for 30 days (configurable TTL), can be pinned to keep permanently, and are distilled into proper thoughts automatically.
+
+### Distillation
+
+The "night sleep" of your second brain. Reads accumulated stream blocks, extracts significant thoughts via LLM (decisions, insights, questions, formulations, contradictions), and writes them into Thoughts through the standard capture pipeline with full embeddings and metadata. Runs automatically via cron (default: 3 AM daily) or on-demand via Power Nap button in the Web UI or `brain distill` CLI.
 
 ### Thought Lifecycle
 
@@ -64,20 +68,21 @@ capture → review → strengthen or let go
 
 ## Web UI
 
-10 tabs at [localhost:3100](http://localhost:3100):
+11 tabs at [localhost:3100](http://localhost:3100):
 
 | Tab | Purpose |
 |-----|---------|
 | **Search** | Semantic search with similarity scores and debounce |
 | **Timeline** | How your thinking on a topic evolved over time |
-| **Recent** | Latest thoughts with source/status filters |
+| **Recent** | Latest thoughts with source/status filters; "from stream" badge on distilled thoughts |
 | **Review** | Weekly reflection — revisit past thoughts |
 | **Compost** | Thoughts you're letting go, dissolving in 30 days |
 | **Duplicates** | Detect and resolve near-duplicate thoughts (merge/dismiss) |
-| **Stream** | Raw conversation blocks — search, filter by session, pin/delete |
+| **Stream** | Raw conversation blocks — search, filter, pin/delete; "→ thoughts" links on distilled blocks |
 | **Import** | Drag-and-drop files + Obsidian vault scanner with progress |
 | **Activity** | Real-time feed of all MCP tool calls with latency |
-| **Stats** | Counts by source, type, activity trends, orphan tags |
+| **Status** | Consolidated brain health: stream/distillation/thoughts stats, expiring blocks, costs |
+| **Distill Log** | Distillation run history with thought links, costs, and expandable details |
 
 Every thought card supports inline editing (with re-embedding), weight control, epistemic status, batch selection, and custom modal dialogs.
 
@@ -129,6 +134,8 @@ brain save "Is consciousness computable?" --type question
 brain search "how to build a personal brand"
 brain recent --limit 10 --source obsidian
 brain stream --session conv-123 --status pending
+brain distill                                      # extract thoughts from stream
+brain status                                       # consolidated brain health
 brain stats
 brain tags
 brain tag-rename "old_tag" "new-tag"
@@ -166,12 +173,13 @@ brain delete <uuid>
 ## API
 
 <details>
-<summary>32 REST endpoints</summary>
+<summary>37 REST endpoints</summary>
 
 **Search & Read**
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| GET | `/api/brain/status` | Consolidated brain health (stream + distillation + thoughts) |
 | GET | `/api/search?q=query` | Semantic search |
 | GET | `/api/recent?limit=20` | Recent thoughts |
 | GET | `/api/timeline?q=topic` | Chronological search |
@@ -210,6 +218,15 @@ brain delete <uuid>
 | PATCH | `/api/stream/:id/pin` | Pin / unpin |
 | DELETE | `/api/stream/:id` | Delete block |
 
+**Distillation**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/distillation/run` | Power Nap — trigger distillation (409 if running) |
+| GET | `/api/distillation/status` | Running state + last run |
+| GET | `/api/distillation/log` | Recent distillation runs |
+| GET | `/api/distillation/log/:id` | Single run details |
+
 **Import & Activity**
 
 | Method | Endpoint | Description |
@@ -240,7 +257,8 @@ brain delete <uuid>
   "database": { "host": "localhost", "port": 5432, "database": "open_brain" },
   "openai": { "embedding_model": "text-embedding-3-small", "metadata_model": "gpt-4o-mini" },
   "capture": { "auto_tag": true, "auto_title": true },
-  "stream": { "ttl_days": 30, "cleanup_on_startup": true }
+  "stream": { "ttl_days": 30, "cleanup_on_startup": true },
+  "distillation": { "enabled": true, "schedule": "0 3 * * *", "model": "gpt-4o-mini", "temperature": 0.3, "max_blocks_per_run": 200, "min_block_length": 50 }
 }
 ```
 
@@ -260,11 +278,11 @@ npm run backup      # pg_dump backup
 
 ## Cost
 
-Daily usage (~20 thoughts + ~10 searches): **~$0.002/day**. Stream writes and most read operations are free (no AI calls).
+Daily usage (~20 thoughts + ~10 searches + distillation): **~$0.01/day**. Stream writes and most read operations are free (no AI calls). Distillation adds ~$0.007/day for processing ~30 blocks.
 
 ## Tech Stack
 
-Node.js, TypeScript (strict), PostgreSQL + pgvector, Drizzle ORM, OpenAI API, MCP SDK, Zod, Pino, Commander.js
+Node.js, TypeScript (strict), PostgreSQL + pgvector, Drizzle ORM, OpenAI API, MCP SDK, Zod, Pino, Commander.js, node-cron
 
 ## License
 

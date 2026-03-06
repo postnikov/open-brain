@@ -90,6 +90,7 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
             sentiment: input.sentiment ?? null,
             embedding: input.embedding ? [...input.embedding] : null,
             thoughtAt: input.thoughtAt ?? null,
+            contentHash: input.contentHash ?? null,
           })
           .returning()
 

@@ -206,6 +206,24 @@ brain stream --status pending
 | `-s, --session` | Фильтр по ID сессии | все |
 | `--status` | Фильтр: pending, distilled, pinned | все |
 
+### Дистилляция
+
+```bash
+# Ручной запуск дистилляции (извлечение мыслей из стрима)
+brain distill
+```
+
+Читает недистиллированные блоки из стрима, группирует по сессиям, передаёт LLM (gpt-4o-mini) для извлечения решений, инсайтов, вопросов, формулировок и противоречий. Результат — мысли через стандартный capture pipeline (embedding + metadata).
+
+### Статус системы
+
+```bash
+# Сводный статус Open Brain
+brain status
+```
+
+Показывает: Stream (блоки, pending/distilled/pinned, expiring), Distillation (последний прогон, время, стоимость, next cron), Thoughts (total, 7d/30d, by source).
+
 ### Удаление
 
 ```bash
@@ -318,17 +336,18 @@ Open Brain предоставляет 10 MCP tools, доступных из Clau
 
 Доступен по адресу: **http://localhost:3100**
 
-10 вкладок:
+11 вкладок:
 - **Search** — семантический поиск с debounce, результаты с процентом похожести
 - **Timeline** — хронологический поиск по теме: как менялось мышление со временем
-- **Recent** — последние записи с фильтрами по источнику
+- **Recent** — последние записи с фильтрами по источнику; бейдж «from stream» на дистиллированных мыслях
 - **Review** — еженедельная рефлексия: «что ты думал N дней назад?» с действиями Still true / Evolved / Let go
 - **Compost** — мысли, которые ты отпускаешь (растворяются через 30 дней)
 - **Duplicates** — обнаружение и разрешение дубликатов (merge / keep / dismiss)
-- **Stream** — буфер захвата разговоров: сырые блоки для дистилляции в мысли
+- **Stream** — буфер захвата разговоров: сырые блоки для дистилляции, ссылки «→ thoughts» на дистиллированных блоках
 - **Import** — drag-and-drop загрузка файлов + сканер Obsidian vault с прогресс-баром
 - **Activity** — лента всех MCP tool calls: кто обратился, что спросил, что получил, latency
-- **Stats** — статистика: total, 7/30 дней, по источникам, по типам, orphan-теги
+- **Status** — дашборд здоровья: stream (блоки, истекающие), distillation (последний прогон, стоимость, конверсия), thoughts (total, 7/30 дней, по источникам)
+- **Distill Log** — история прогонов дистилляции: время, триггер, статус, созданные мысли (кликабельные), стоимость, ошибки
 
 Контроль на каждой карточке:
 - **Inline editing** — редактирование на месте с пересчётом эмбеддинга
@@ -349,6 +368,7 @@ Open Brain предоставляет 10 MCP tools, доступных из Clau
 
 | Метод | Endpoint | Описание |
 |-------|----------|----------|
+| GET | `/api/brain/status` | Сводный статус (stream + distillation + thoughts) |
 | GET | `/api/search?q=query&limit=10` | Семантический поиск |
 | GET | `/api/recent?limit=20&source=obsidian` | Последние записи |
 | GET | `/api/timeline?q=topic&limit=30` | Хронологический поиск |
@@ -387,6 +407,10 @@ Open Brain предоставляет 10 MCP tools, доступных из Clau
 | DELETE | `/api/stream/:id` | Удалить блок стрима |
 | POST | `/api/import/obsidian/scan` | Сканирование Obsidian vault |
 | POST | `/api/import/obsidian/start` | Запуск импорта из vault |
+| POST | `/api/distillation/run` | Power Nap — ручной запуск дистилляции (409 если уже работает) |
+| GET | `/api/distillation/status` | Текущий статус (running, last_run) |
+| GET | `/api/distillation/log?limit=20` | Лог запусков дистилляции |
+| GET | `/api/distillation/log/:id` | Детали конкретного прогона |
 
 ---
 
@@ -514,6 +538,18 @@ gunzip -c ~/.open-brain/backups/open-brain-2026-03-04_0146.sql.gz \
   "capture": {
     "auto_tag": true,
     "auto_title": true
+  },
+  "stream": {
+    "ttl_days": 30,
+    "cleanup_on_startup": true
+  },
+  "distillation": {
+    "enabled": true,
+    "schedule": "0 3 * * *",
+    "model": "gpt-4o-mini",
+    "temperature": 0.3,
+    "max_blocks_per_run": 200,
+    "min_block_length": 50
   }
 }
 ```
@@ -539,7 +575,7 @@ gunzip -c ~/.open-brain/backups/open-brain-2026-03-04_0146.sql.gz \
 | `content` | TEXT | Полный текст мысли |
 | `content_type` | VARCHAR(20) | thought, note, idea, question, observation, decision |
 | `source` | VARCHAR(50) | api, cli, telegram, obsidian |
-| `source_ref` | TEXT | Ссылка на оригинал (путь к файлу, message_id) |
+| `source_ref` | TEXT | Ссылка на оригинал: путь к файлу, message_id, или JSON `{"session_ids":[],"block_ids":[],"distillation_run_id":"uuid"}` для дистиллированных мыслей |
 | `title` | TEXT | Краткое описание (авто-извлечённое) |
 | `tags` | TEXT[] | Массив тегов |
 | `topics` | TEXT[] | Массив широких тем |
@@ -602,6 +638,25 @@ gunzip -c ~/.open-brain/backups/open-brain-2026-03-04_0146.sql.gz \
 | `expires_at` | TIMESTAMPTZ | Когда истекает (TTL, default 30 дней) |
 
 UNIQUE: `(session_id, block_number)`. GIN full-text index on content.
+
+### Таблица `distillation_log`
+
+| Столбец | Тип | Описание |
+|---------|-----|----------|
+| `id` | UUID | Уникальный идентификатор (auto) |
+| `trigger` | VARCHAR(20) | cron / power_nap / cli |
+| `status` | VARCHAR(20) | success / partial / error |
+| `blocks_processed` | INTEGER | Количество обработанных блоков |
+| `sessions_processed` | INTEGER | Количество затронутых сессий |
+| `thoughts_created` | INTEGER | Количество извлечённых мыслей |
+| `thought_ids` | TEXT[] | ID созданных мыслей |
+| `blocks_skipped` | INTEGER | Пропущенные блоки (слишком короткие) |
+| `skip_reasons` | TEXT | Причины пропуска (JSON) |
+| `tokens_used` | INTEGER | Использовано токенов |
+| `estimated_cost` | REAL | Оценочная стоимость ($) |
+| `duration_ms` | INTEGER | Время выполнения (ms) |
+| `error_message` | TEXT | Ошибка (если есть) |
+| `created_at` | TIMESTAMPTZ | Когда запущен |
 
 ### Таблица `dismissed_pairs`
 
@@ -712,7 +767,11 @@ tail -f ~/.open-brain/server.log
 | Embeddings (save) | ~10K | ~$0.0002 |
 | Embeddings (search) | ~5K | ~$0.0001 |
 | Metadata extraction | ~10K | ~$0.0015 |
-| **Итого** | | **~$0.002/день** |
+| Distillation (input ~30 blocks) | ~30K | ~$0.005 |
+| Distillation (output ~5 thoughts) | ~2K | ~$0.001 |
+| Embedding distilled thoughts | ~5K | ~$0.0001 |
+| Metadata distilled thoughts | ~5K | ~$0.001 |
+| **Итого** | | **~$0.01/день** |
 
 ### Индексация Obsidian (разовая, ~400 файлов)
 
@@ -762,6 +821,12 @@ open-brain/
 │   │   ├── types.ts            # Интерфейсы StreamBlock, StreamRepository
 │   │   ├── repository.ts       # Реализация stream-репозитория
 │   │   └── cleanup.ts          # Очистка истёкших блоков
+│   ├── distillation/
+│   │   ├── types.ts            # Интерфейсы DistillationService, DistillationRepository
+│   │   ├── prompt.ts           # Промпт для извлечения мыслей из стрима
+│   │   ├── repository.ts       # distillation_log CRUD
+│   │   ├── service.ts          # Основная логика дистилляции (LLM pipeline)
+│   │   └── scheduler.ts        # Cron-планировщик (node-cron)
 │   ├── tools/
 │   │   └── register.ts        # Регистрация 10 MCP tools
 │   ├── web/

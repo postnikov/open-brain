@@ -104,6 +104,26 @@ CREATE INDEX IF NOT EXISTS idx_stream_distilled ON stream (distilled_at) WHERE d
 CREATE INDEX IF NOT EXISTS idx_stream_content_fts ON stream USING GIN (to_tsvector('english', content));
 `
 
+const DISTILLATION_LOG_SQL = `
+CREATE TABLE IF NOT EXISTS distillation_log (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  trigger             VARCHAR(20) NOT NULL,
+  status              VARCHAR(20) NOT NULL,
+  blocks_processed    INTEGER NOT NULL DEFAULT 0,
+  sessions_processed  INTEGER NOT NULL DEFAULT 0,
+  thoughts_created    INTEGER NOT NULL DEFAULT 0,
+  thought_ids         TEXT[],
+  blocks_skipped      INTEGER NOT NULL DEFAULT 0,
+  skip_reasons        TEXT,
+  tokens_used         INTEGER NOT NULL DEFAULT 0,
+  estimated_cost      REAL NOT NULL DEFAULT 0,
+  duration_ms         INTEGER NOT NULL DEFAULT 0,
+  error_message       TEXT,
+  created_at          TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_distillation_created ON distillation_log (created_at DESC);
+`
+
 const DISMISSED_PAIRS_SQL = `
 CREATE TABLE IF NOT EXISTS dismissed_pairs (
   id_a UUID NOT NULL,
@@ -145,6 +165,9 @@ async function migrate(): Promise<void> {
 
     await client.query(STREAM_TABLE_SQL)
     logger.info('Stream table created')
+
+    await client.query(DISTILLATION_LOG_SQL)
+    logger.info('Distillation log table created')
 
     logger.info('Migrations complete')
   } catch (error) {

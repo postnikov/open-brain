@@ -112,6 +112,32 @@ export const stream = pgTable(
   ],
 )
 
+export const distillationLog = pgTable(
+  'distillation_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    trigger: varchar('trigger', { length: 20 }).notNull(),
+    status: varchar('status', { length: 20 }).notNull(),
+    blocksProcessed: integer('blocks_processed').notNull().default(0),
+    sessionsProcessed: integer('sessions_processed').notNull().default(0),
+    thoughtsCreated: integer('thoughts_created').notNull().default(0),
+    thoughtIds: text('thought_ids').array(),
+    blocksSkipped: integer('blocks_skipped').notNull().default(0),
+    skipReasons: text('skip_reasons'),
+    tokensUsed: integer('tokens_used').notNull().default(0),
+    estimatedCost: real('estimated_cost').notNull().default(0),
+    durationMs: integer('duration_ms').notNull().default(0),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index('idx_distillation_created').on(table.createdAt),
+  ],
+)
+
+export type DistillationLogRecord = typeof distillationLog.$inferSelect
+export type NewDistillationLogRecord = typeof distillationLog.$inferInsert
+
 export type ThoughtRecord = typeof thoughts.$inferSelect
 export type NewThoughtRecord = typeof thoughts.$inferInsert
 export type StreamRecord = typeof stream.$inferSelect

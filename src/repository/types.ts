@@ -27,6 +27,7 @@ export interface CreateThoughtInput {
   readonly sentiment?: string
   readonly embedding?: readonly number[]
   readonly thoughtAt?: Date
+  readonly contentHash?: string
 }
 
 export interface UpdateThoughtInput {

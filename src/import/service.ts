@@ -55,8 +55,8 @@ export function createImportService(
   let progress: ImportProgress = { running: false, processed: 0, total: 0, skipped: 0, errors: [] }
 
   async function getExistingHashes(): Promise<Set<string>> {
-    const rows = await db.execute(sql`SELECT obsidian_hash FROM thoughts WHERE obsidian_hash IS NOT NULL`)
-    return new Set(rows.rows.map((r) => r.obsidian_hash as string))
+    const rows = await db.execute(sql`SELECT content_hash FROM thoughts WHERE content_hash IS NOT NULL`)
+    return new Set(rows.rows.map((r) => r.content_hash as string))
   }
 
   async function processFile(
@@ -83,7 +83,7 @@ export function createImportService(
 
     if (obsidianPath) {
       const rows = await db.execute(sql`
-        SELECT id FROM thoughts WHERE content = ${truncated} ORDER BY created_at DESC LIMIT 1
+        SELECT id FROM thoughts WHERE content_hash = ${hash} ORDER BY created_at DESC LIMIT 1
       `)
       if (rows.rows[0]) {
         await db.execute(sql`

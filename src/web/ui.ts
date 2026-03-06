@@ -176,6 +176,47 @@ export const HTML = `<!DOCTYPE html>
   .stream-actions button { background: none; border: 1px solid #333; color: #888; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
   .stream-actions button:hover { color: #fff; border-color: #555; }
 
+  .power-nap-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; }
+  .power-nap-btn { background: #1a2a1a; border: 1px solid #2a4a2a; color: #6a6; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+  .power-nap-btn:hover { background: #2a4a2a; color: #8c8; border-color: #4a6a4a; }
+  .power-nap-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .distillation-status { font-size: 12px; color: #888; }
+  .distillation-status .running { color: #4a9; }
+
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1a2a1a; border: 1px solid #2a4a2a; color: #6a6; padding: 10px 20px; border-radius: 8px; font-size: 14px; z-index: 100; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+  .toast.visible { opacity: 1; }
+  .toast.warning { background: #2a2a1a; border-color: #4a3a1a; color: #a86; }
+
+  .status-section { background: #111; border: 1px solid #222; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+  .status-section h3 { color: #fff; font-size: 15px; margin-bottom: 12px; border-bottom: 1px solid #222; padding-bottom: 8px; }
+  .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .status-warning { color: #a86; font-weight: 500; }
+
+  .distill-run { background: #111; border: 1px solid #222; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
+  .distill-run:hover { border-color: #444; }
+  .distill-run-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px; }
+  .distill-run-stats { display: flex; gap: 12px; font-size: 13px; color: #888; flex-wrap: wrap; }
+  .distill-run-detail { margin-top: 10px; padding-top: 10px; border-top: 1px solid #222; font-size: 13px; color: #888; display: none; }
+  .distill-run-detail.open { display: block; }
+  .distill-run-thoughts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .distill-run-thoughts a { color: #4a9; font-size: 12px; text-decoration: none; padding: 2px 6px; background: #0d1a0d; border-radius: 3px; }
+  .distill-run-thoughts a:hover { background: #1a3a1a; }
+  .trigger-badge { font-size: 11px; padding: 2px 8px; border-radius: 3px; }
+  .trigger-badge[data-trigger="cron"] { background: #1a1a2a; color: #88a; }
+  .trigger-badge[data-trigger="power_nap"] { background: #1a2a1a; color: #6a6; }
+  .trigger-badge[data-trigger="cli"] { background: #2a2a1a; color: #aa8; }
+  .status-badge { font-size: 11px; padding: 2px 8px; border-radius: 3px; }
+  .status-badge[data-status="success"] { background: #1a2a1a; color: #6a6; }
+  .status-badge[data-status="partial"] { background: #2a2a1a; color: #aa8; }
+  .status-badge[data-status="error"] { background: #2a1a1a; color: #a66; }
+  .distill-limit-selector { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; color: #666; font-size: 13px; }
+  .distill-limit-selector button { padding: 4px 10px; background: #1a1a1a; border: 1px solid #333; border-radius: 12px; font-size: 12px; color: #999; cursor: pointer; }
+  .distill-limit-selector button:hover, .distill-limit-selector button.active { background: #333; color: #fff; border-color: #555; }
+
+  .source-badge { font-size: 11px; padding: 2px 8px; border-radius: 3px; background: #1a1a2a; color: #88a; margin-left: 4px; }
+  .stream-thought-link { font-size: 12px; color: #4a9; cursor: pointer; margin-left: 4px; }
+  .stream-thought-link:hover { text-decoration: underline; }
+
   .review-nav { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; }
   .review-nav button { background: #1a1a1a; border: 1px solid #333; color: #999; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .review-nav button:hover { color: #fff; border-color: #555; }
@@ -241,7 +282,8 @@ export const HTML = `<!DOCTYPE html>
     <div class="tab" data-tab="stream" onclick="switchTab('stream')">Stream</div>
     <div class="tab" data-tab="import" onclick="switchTab('import')">Import</div>
     <div class="tab" data-tab="activity" onclick="switchTab('activity')">Activity</div>
-    <div class="tab" data-tab="stats" onclick="switchTab('stats')">Stats</div>
+    <div class="tab" data-tab="stats" onclick="switchTab('stats')">Status</div>
+    <div class="tab" data-tab="distill-log" onclick="switchTab('distill-log')">Distill Log</div>
   </div>
 
   <div id="search-view"><div class="search-box"><input type="text" id="searchInput" placeholder="Semantic search..." autofocus></div><div id="searchResults"></div></div>
@@ -251,6 +293,10 @@ export const HTML = `<!DOCTYPE html>
   <div id="compost-view" style="display:none"><div id="compostResults"></div></div>
   <div id="duplicates-view" style="display:none"><div id="duplicatesResults"></div></div>
   <div id="stream-view" style="display:none">
+    <div class="power-nap-bar">
+      <div id="distillationStatus" class="distillation-status"></div>
+      <button class="power-nap-btn" id="powerNapBtn" onclick="triggerPowerNap()">Power Nap</button>
+    </div>
     <div class="stream-controls">
       <div class="search-box"><input type="text" id="streamSearchInput" placeholder="Search stream content..."></div>
       <div class="stream-filters">
@@ -261,6 +307,7 @@ export const HTML = `<!DOCTYPE html>
     <div id="streamStats" class="stream-stats-bar"></div>
     <div id="streamResults"></div>
   </div>
+  <div id="toast" class="toast"></div>
   <div id="import-view" style="display:none">
     <div class="import-section">
       <h3>File Upload</h3>
@@ -287,6 +334,7 @@ export const HTML = `<!DOCTYPE html>
   </div>
   <div id="activity-view" style="display:none"><div id="activityStats"></div><div class="activity-filters" id="activityFilters"></div><div id="activityResults"></div></div>
   <div id="stats-view" style="display:none"><div id="statsContent"></div></div>
+  <div id="distill-log-view" style="display:none"><div class="distill-limit-selector">Show: <button class="active" onclick="distillLogLimit=10;loadDistillLog()">10</button><button onclick="distillLogLimit=20;loadDistillLog()">20</button><button onclick="distillLogLimit=50;loadDistillLog()">50</button></div><div id="distillLogResults"></div></div>
 
   <div id="status"></div>
 </div>
@@ -311,7 +359,7 @@ var batchMode = false;
 var selectedIds = new Set();
 var reviewDaysAgo = 7;
 var STATUSES = {hypothesis:'? Hypothesis',conviction:'! Conviction',fact:'\\u2713 Fact',outdated:'\\u2717 Outdated',question:'? Question'};
-var TABS = ['search','timeline','recent','review','compost','duplicates','stream','import','activity','stats'];
+var TABS = ['search','timeline','recent','review','compost','duplicates','stream','import','activity','stats','distill-log'];
 
 function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 function escAttr(s) { return esc(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;'); }
@@ -376,10 +424,11 @@ function switchTab(tab) {
   if (tab === 'recent') loadRecent();
   if (tab === 'compost') loadCompost();
   if (tab === 'duplicates') loadDuplicates();
-  if (tab === 'stream') loadStream();
+  if (tab === 'stream') { loadStream(); loadDistillationStatus(); checkExpiringBlocks(); }
   if (tab === 'activity') loadActivity();
-  if (tab === 'stats') loadStats();
+  if (tab === 'stats') loadBrainStatus();
   if (tab === 'review') loadReview();
+  if (tab === 'distill-log') loadDistillLog();
 }
 
 function renderThought(t, opts) {
@@ -412,11 +461,16 @@ function renderThought(t, opts) {
       '<button data-action="delete" title="Delete">\\ud83d\\uddd1</button>';
   }
 
+  var sourceBadge = '';
+  if (t.source === 'distillation' && t.source_ref) {
+    try { var ref = JSON.parse(t.source_ref); if (ref.session_ids && ref.session_ids.length > 0) sourceBadge = '<span class="source-badge" title="From stream sessions: ' + escAttr(ref.session_ids.join(', ').slice(0, 80)) + '">from stream</span>'; } catch(e) {}
+  }
+
   return '<div class="thought' + selClass + '" data-id="' + safeId + '"' + weightStyle + '>' +
     '<div class="thought-header"><span class="thought-title">' + esc(t.title || 'Untitled') + '</span><div class="thought-badges">' + badges + '</div></div>' +
     '<div class="thought-content ' + collapsed + '">' + content + '</div>' +
     '<div class="thought-meta"><div class="thought-tags">' + tags + '</div>' +
-    '<span class="thought-source">' + esc(t.source) + '</span><span class="thought-date">' + date + '</span>' +
+    '<span class="thought-source">' + esc(t.source) + sourceBadge + '</span><span class="thought-date">' + date + '</span>' +
     '<div class="thought-actions">' + actions + '</div></div></div>';
 }
 
@@ -685,7 +739,7 @@ async function loadStream() {
           '<span>' + esc(date) + '</span>' +
           (b.source_client ? '<span>via ' + esc(b.source_client) + '</span>' : '') +
           (participants ? '<span>Participants: ' + esc(participants) + '</span>' : '') +
-          (b.distilled ? '<span style="color:#4a9">distilled</span>' : '') +
+          (b.distilled ? '<span style="color:#4a9">distilled</span>' + (b.distillation_run_id ? '<span class="stream-thought-link" onclick="event.stopPropagation();showRunThoughts(\\'' + b.distillation_run_id + '\\')">thoughts</span>' : '') : '') +
           (expires && !b.pinned ? '<span>expires ' + esc(expires) + '</span>' : '') +
         '</div>' +
       '</div>';
@@ -879,36 +933,169 @@ async function loadActivity() {
   } catch(e) { document.getElementById('activityResults').innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>'; }
 }
 
-// --- Stats ---
-async function loadStats() {
+// --- Brain Status ---
+async function loadBrainStatus() {
   document.getElementById('statsContent').innerHTML = '<div class="loading">Loading...</div>';
   try {
-    var r = await fetch(API + '/stats');
-    var s = await r.json();
-    var html = '<div class="stats-grid">' +
-      '<div class="stat-card"><div class="stat-value">' + s.total + '</div><div class="stat-label">Total thoughts</div></div>' +
-      '<div class="stat-card"><div class="stat-value">' + s.last_7_days + '</div><div class="stat-label">Last 7 days</div></div>' +
-      '<div class="stat-card"><div class="stat-value">' + s.last_30_days + '</div><div class="stat-label">Last 30 days</div></div>' +
-      '<div class="stat-card"><div class="stat-value">' + Object.keys(s.by_source || {}).length + '</div><div class="stat-label">Sources</div></div></div>';
-    if (s.by_source) { html += '<h3 style="margin:16px 0 8px;color:#999;font-size:14px">By Source</h3><div class="stats-grid">'; for (var k in s.by_source) html += '<div class="stat-card"><div class="stat-value">' + s.by_source[k] + '</div><div class="stat-label">' + esc(k) + '</div></div>'; html += '</div>'; }
-    if (s.by_type) { html += '<h3 style="margin:16px 0 8px;color:#999;font-size:14px">By Type</h3><div class="stats-grid">'; for (var k2 in s.by_type) html += '<div class="stat-card"><div class="stat-value">' + s.by_type[k2] + '</div><div class="stat-label">' + esc(k2) + '</div></div>'; html += '</div>'; }
-    try {
-      var ot = await fetch(API + '/tags/orphans'); var orphanData = await ot.json();
-      if (orphanData.orphans && orphanData.orphans.length > 0) {
-        html += '<div class="orphan-section"><h3>Orphan Tags (' + orphanData.total + ')</h3>';
-        orphanData.orphans.forEach(function(o) {
-          var st = escAttr(o.tag), si = o.thought ? escAttr(o.thought.id) : '';
-          html += '<div class="orphan-item" data-id="' + si + '"><div class="orphan-info"><span class="tag">' + esc(o.tag) + '</span>';
-          if (o.thought) html += '<span class="orphan-thought">' + esc(o.thought.title || 'Untitled') + '</span>';
-          html += '</div><div class="thought-actions"><button data-action="rename-orphan" data-tag="' + st + '" title="Rename">&#9998;</button>';
-          if (o.thought) html += '<button data-action="remove-orphan" data-tag="' + st + '" data-thought-id="' + si + '" title="Remove">&#10005;</button>';
-          html += '</div></div>';
-        }); html += '</div>';
+    var [statusRes, statsRes, orphanRes] = await Promise.all([
+      fetch(API + '/brain/status'),
+      fetch(API + '/stats'),
+      fetch(API + '/tags/orphans').catch(function() { return null; }),
+    ]);
+    var status = await statusRes.json();
+    var s = await statsRes.json();
+    var orphanData = orphanRes ? await orphanRes.json() : null;
+
+    var html = '';
+
+    // Stream section
+    html += '<div class="status-section"><h3>Stream</h3><div class="status-grid">';
+    html += '<div class="stat-card"><div class="stat-value">' + status.stream.total_blocks + '</div><div class="stat-label">Total blocks</div></div>';
+    html += '<div class="stat-card"><div class="stat-value">' + status.stream.pending_blocks + '</div><div class="stat-label">Pending</div></div>';
+    html += '<div class="stat-card"><div class="stat-value">' + status.stream.distilled_blocks + '</div><div class="stat-label">Distilled</div></div>';
+    html += '<div class="stat-card"><div class="stat-value">' + status.stream.pinned_blocks + '</div><div class="stat-label">Pinned</div></div>';
+    if (status.stream.expiring_soon > 0) {
+      html += '<div class="stat-card"><div class="stat-value status-warning">' + status.stream.expiring_soon + '</div><div class="stat-label status-warning">Expiring &lt;3d</div></div>';
+    }
+    html += '</div></div>';
+
+    // Distillation section
+    html += '<div class="status-section"><h3>Distillation</h3><div class="status-grid">';
+    if (status.distillation.last_run) {
+      var lr = status.distillation.last_run;
+      html += '<div class="stat-card"><div class="stat-value">' + timeAgo(lr.created_at) + '</div><div class="stat-label">Last run (' + esc(lr.trigger) + ')</div></div>';
+      html += '<div class="stat-card"><div class="stat-value">' + lr.thoughts_created + '</div><div class="stat-label">Thoughts created</div></div>';
+      html += '<div class="stat-card"><div class="stat-value">$' + lr.estimated_cost.toFixed(4) + '</div><div class="stat-label">Last cost</div></div>';
+    } else {
+      html += '<div class="stat-card"><div class="stat-value">-</div><div class="stat-label">No runs yet</div></div>';
+    }
+    if (status.distillation.next_run) {
+      var next = new Date(status.distillation.next_run);
+      html += '<div class="stat-card"><div class="stat-value">' + next.toLocaleTimeString(undefined, {hour:'2-digit',minute:'2-digit'}) + '</div><div class="stat-label">Next cron</div></div>';
+    }
+    html += '<div class="stat-card"><div class="stat-value">' + status.distillation.weekly_thoughts + '</div><div class="stat-label">This week</div></div>';
+    html += '<div class="stat-card"><div class="stat-value">' + status.distillation.conversion_rate + '</div><div class="stat-label">Conversion rate</div></div>';
+    html += '<div class="stat-card"><div class="stat-value">$' + status.distillation.cost_7d.toFixed(4) + '</div><div class="stat-label">7d cost</div></div>';
+    html += '<div class="stat-card"><div class="stat-value">$' + status.distillation.cost_30d.toFixed(4) + '</div><div class="stat-label">30d cost</div></div>';
+    html += '</div>';
+
+    // No recent run warning
+    if (status.distillation.last_run) {
+      var lastRunTime = new Date(status.distillation.last_run.created_at).getTime();
+      if (Date.now() - lastRunTime > 48 * 60 * 60 * 1000) {
+        html += '<p class="status-warning" style="margin-top:8px;font-size:13px">No distillation run in the last 48 hours</p>';
       }
-    } catch(e) {}
+    }
+    html += '</div>';
+
+    // Thoughts section
+    html += '<div class="status-section"><h3>Thoughts</h3><div class="status-grid">';
+    html += '<div class="stat-card"><div class="stat-value">' + status.thoughts.total + '</div><div class="stat-label">Total</div></div>';
+    html += '<div class="stat-card"><div class="stat-value">' + status.thoughts.last_7_days + '</div><div class="stat-label">Last 7 days</div></div>';
+    html += '<div class="stat-card"><div class="stat-value">' + status.thoughts.last_30_days + '</div><div class="stat-label">Last 30 days</div></div>';
+    html += '</div>';
+    if (status.thoughts.by_source) {
+      html += '<h4 style="margin:12px 0 8px;color:#888;font-size:13px">By Source</h4><div class="status-grid">';
+      for (var k in status.thoughts.by_source) html += '<div class="stat-card"><div class="stat-value">' + status.thoughts.by_source[k] + '</div><div class="stat-label">' + esc(k) + '</div></div>';
+      html += '</div>';
+    }
+    if (s.by_type) {
+      html += '<h4 style="margin:12px 0 8px;color:#888;font-size:13px">By Type</h4><div class="status-grid">';
+      for (var k2 in s.by_type) html += '<div class="stat-card"><div class="stat-value">' + s.by_type[k2] + '</div><div class="stat-label">' + esc(k2) + '</div></div>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // Orphan tags
+    if (orphanData && orphanData.orphans && orphanData.orphans.length > 0) {
+      html += '<div class="status-section"><h3>Orphan Tags (' + orphanData.total + ')</h3>';
+      orphanData.orphans.forEach(function(o) {
+        var st = escAttr(o.tag), si = o.thought ? escAttr(o.thought.id) : '';
+        html += '<div class="orphan-item" data-id="' + si + '"><div class="orphan-info"><span class="tag">' + esc(o.tag) + '</span>';
+        if (o.thought) html += '<span class="orphan-thought">' + esc(o.thought.title || 'Untitled') + '</span>';
+        html += '</div><div class="thought-actions"><button data-action="rename-orphan" data-tag="' + st + '" title="Rename">&#9998;</button>';
+        if (o.thought) html += '<button data-action="remove-orphan" data-tag="' + st + '" data-thought-id="' + si + '" title="Remove">&#10005;</button>';
+        html += '</div></div>';
+      });
+      html += '</div>';
+    }
+
     document.getElementById('statsContent').innerHTML = html;
-    document.getElementById('totalCount').textContent = s.total + ' thoughts';
+    document.getElementById('totalCount').textContent = status.thoughts.total + ' thoughts';
   } catch(e) { document.getElementById('statsContent').innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>'; }
+}
+
+// --- Distill Log ---
+var distillLogLimit = 10;
+
+async function loadDistillLog() {
+  // Update limit button states
+  document.querySelectorAll('.distill-limit-selector button').forEach(function(b) {
+    b.classList.toggle('active', parseInt(b.textContent) === distillLogLimit);
+  });
+  document.getElementById('distillLogResults').innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    var r = await fetch(API + '/distillation/log?limit=' + distillLogLimit);
+    var data = await r.json();
+    if (!data.runs || data.runs.length === 0) {
+      document.getElementById('distillLogResults').innerHTML = '<div class="empty">No distillation runs yet</div>';
+      return;
+    }
+    document.getElementById('distillLogResults').innerHTML = data.runs.map(function(run, idx) {
+      var date = run.created_at ? new Date(run.created_at).toLocaleString() : '';
+      var thoughtLinks = (run.thought_ids || []).map(function(tid) {
+        return '<a href="#" onclick="switchTab(\\'recent\\');return false;" title="' + escAttr(tid) + '">' + tid.slice(0, 8) + '</a>';
+      }).join('');
+      var skipReasons = '';
+      if (run.blocks_skipped > 0) { try { var sr = JSON.parse(run.skip_reasons || '{}'); skipReasons = Object.entries(sr).map(function(e) { return e[0] + ': ' + e[1]; }).join(', '); } catch(e) {} }
+
+      return '<div class="distill-run" onclick="this.querySelector(\\'.distill-run-detail\\').classList.toggle(\\'open\\')">' +
+        '<div class="distill-run-header">' +
+          '<div style="display:flex;gap:8px;align-items:center">' +
+            '<span style="color:#fff;font-size:14px">' + esc(date) + '</span>' +
+            '<span class="trigger-badge" data-trigger="' + escAttr(run.trigger) + '">' + esc(run.trigger) + '</span>' +
+            '<span class="status-badge" data-status="' + escAttr(run.status) + '">' + esc(run.status) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="distill-run-stats">' +
+          '<span>Blocks: ' + run.blocks_processed + '</span>' +
+          '<span>Thoughts: ' + run.thoughts_created + '</span>' +
+          '<span>Tokens: ' + run.tokens_used + '</span>' +
+          '<span>Cost: $' + (run.estimated_cost || 0).toFixed(4) + '</span>' +
+          '<span>' + (run.duration_ms || 0) + 'ms</span>' +
+        '</div>' +
+        '<div class="distill-run-detail">' +
+          (run.thoughts_created > 0 ? '<div style="margin-bottom:6px;color:#aaa">Created thoughts:</div><div class="distill-run-thoughts">' + thoughtLinks + '</div>' : '') +
+          (run.blocks_skipped > 0 ? '<div style="margin-top:6px">Skipped: ' + run.blocks_skipped + (skipReasons ? ' (' + esc(skipReasons) + ')' : '') + '</div>' : '') +
+          (run.error_message ? '<div style="margin-top:6px;color:#a66">Error: ' + esc(run.error_message) + '</div>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch(e) { document.getElementById('distillLogResults').innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>'; }
+}
+
+// --- Run thoughts popup ---
+async function showRunThoughts(runId) {
+  try {
+    var r = await fetch(API + '/distillation/log/' + encodeURIComponent(runId));
+    var data = await r.json();
+    if (!data.thought_ids || data.thought_ids.length === 0) {
+      showToast('No thoughts created in this run');
+      return;
+    }
+    await modalAlert('Thoughts created: ' + data.thought_ids.length + '\\n\\n' + data.thought_ids.map(function(id) { return id.slice(0, 12); }).join(', '), 'Distillation Run');
+  } catch(e) { showToast('Error loading run details'); }
+}
+
+// --- Expiring blocks notification ---
+async function checkExpiringBlocks() {
+  try {
+    var r = await fetch(API + '/brain/status');
+    var status = await r.json();
+    if (status.stream.expiring_soon > 0 && status.stream.pending_blocks > 0) {
+      showToast(status.stream.expiring_soon + ' blocks expiring soon, not yet distilled', true);
+    }
+  } catch(e) { /* ignore */ }
 }
 
 // --- Delete ---
@@ -981,13 +1168,13 @@ async function setStatus(id, status) {
 // --- Orphan tags ---
 async function removeOrphanTag(tag, thoughtId) {
   if (!await modalConfirm('Remove tag "' + tag + '" from this thought?', { title: 'Remove Tag', okLabel: 'Remove' })) return;
-  try { var r = await fetch(API + '/tags/' + encodeURIComponent(tag) + '/from/' + encodeURIComponent(thoughtId), { method: 'DELETE' }); if (!r.ok) throw new Error('Failed'); loadStats(); }
+  try { var r = await fetch(API + '/tags/' + encodeURIComponent(tag) + '/from/' + encodeURIComponent(thoughtId), { method: 'DELETE' }); if (!r.ok) throw new Error('Failed'); loadBrainStatus(); }
   catch(err) { await modalAlert(err.message, 'Error'); }
 }
 async function renameOrphanTag(oldTag) {
   var n = await modalPrompt('Enter new name for tag "' + oldTag + '":', oldTag, { title: 'Rename Tag', okLabel: 'Rename' });
   if (!n || n === oldTag) return;
-  try { var r = await fetch(API + '/tags/rename', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ old_tag: oldTag, new_tag: n }) }); if (!r.ok) throw new Error('Failed'); loadStats(); }
+  try { var r = await fetch(API + '/tags/rename', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ old_tag: oldTag, new_tag: n }) }); if (!r.ok) throw new Error('Failed'); loadBrainStatus(); }
   catch(err) { await modalAlert(err.message, 'Error'); }
 }
 
@@ -1079,6 +1266,87 @@ async function batchSetStatus() {
   } catch(err) { await modalAlert(err.message, 'Error'); }
 }
 
+// --- Distillation ---
+var distillationPollTimer = null;
+
+function showToast(msg, warning) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.toggle('warning', !!warning);
+  el.classList.add('visible');
+  setTimeout(function() { el.classList.remove('visible'); el.classList.remove('warning'); }, 4000);
+}
+
+async function loadDistillationStatus() {
+  try {
+    var r = await fetch(API + '/distillation/status');
+    var data = await r.json();
+    var el = document.getElementById('distillationStatus');
+    if (!el) return;
+
+    if (data.running) {
+      el.innerHTML = '<span class="running">Distilling...</span>';
+      return;
+    }
+    if (data.last_run) {
+      var ago = timeAgo(data.last_run.created_at);
+      el.textContent = 'Last run: ' + ago + ', ' + data.last_run.thoughts_created + ' thoughts';
+    } else {
+      el.textContent = 'No distillation runs yet';
+    }
+  } catch(err) { /* ignore */ }
+}
+
+function timeAgo(isoDate) {
+  if (!isoDate) return 'never';
+  var diff = Date.now() - new Date(isoDate).getTime();
+  var mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  var hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + 'h ago';
+  var days = Math.floor(hours / 24);
+  return days + 'd ago';
+}
+
+async function triggerPowerNap() {
+  var btn = document.getElementById('powerNapBtn');
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+
+  try {
+    var r = await fetch(API + '/distillation/run', { method: 'POST' });
+    if (r.status === 409) {
+      showToast('Distillation is already running');
+      return;
+    }
+    if (!r.ok) { var d = await r.json(); throw new Error(d.error || 'Failed'); }
+
+    // Poll for completion
+    distillationPollTimer = setInterval(async function() {
+      try {
+        var sr = await fetch(API + '/distillation/status');
+        var status = await sr.json();
+        if (!status.running) {
+          clearInterval(distillationPollTimer);
+          distillationPollTimer = null;
+          btn.disabled = false;
+          btn.textContent = 'Power Nap';
+          if (status.last_run) {
+            showToast('Extracted ' + status.last_run.thoughts_created + ' thoughts from ' + status.last_run.blocks_processed + ' blocks');
+          }
+          loadDistillationStatus();
+          loadStream();
+        }
+      } catch(e) { /* ignore poll errors */ }
+    }, 2000);
+  } catch(err) {
+    btn.disabled = false;
+    btn.textContent = 'Power Nap';
+    await modalAlert(err.message, 'Error');
+  }
+}
+
 // --- Init ---
 document.getElementById('searchInput').addEventListener('input', function(e) { clearTimeout(debounceTimer); debounceTimer = setTimeout(function() { search(e.target.value); }, 400); });
 document.getElementById('searchInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { clearTimeout(debounceTimer); search(e.target.value); } });
@@ -1086,7 +1354,7 @@ document.getElementById('timelineInput').addEventListener('input', function(e) {
 document.getElementById('timelineInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { clearTimeout(timelineTimer); searchTimeline(e.target.value); } });
 document.getElementById('streamSearchInput').addEventListener('input', function(e) { clearTimeout(streamSearchTimer); streamSearchTimer = setTimeout(function() { loadStream(); }, 500); });
 document.getElementById('streamSearchInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { clearTimeout(streamSearchTimer); loadStream(); } });
-fetch(API + '/stats').then(function(r) { return r.json(); }).then(function(s) { document.getElementById('totalCount').textContent = s.total + ' thoughts'; }).catch(function() {});
+fetch(API + '/brain/status').then(function(r) { return r.json(); }).then(function(s) { document.getElementById('totalCount').textContent = s.thoughts.total + ' thoughts'; }).catch(function() {});
 setupDropZone();
 </script>
 </body>

@@ -20,4 +20,12 @@ export const DEFAULT_CONFIG: AppConfig = {
     ttl_days: 30,
     cleanup_on_startup: true,
   },
+  distillation: {
+    enabled: true,
+    schedule: '0 3 * * *',
+    model: 'gpt-4o-mini',
+    temperature: 0.3,
+    max_blocks_per_run: 200,
+    min_block_length: 50,
+  },
 }

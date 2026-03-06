@@ -198,6 +198,22 @@ export function createStreamRepository(db: Database, ttlDays: number): StreamRep
       }
     },
 
+    async findExpiringBlocks(days: number): Promise<readonly StreamBlock[]> {
+      try {
+        const rows = await db.execute(sql`
+          SELECT * FROM stream
+          WHERE expires_at < NOW() + INTERVAL '1 day' * ${days}
+            AND pinned = false
+            AND distilled_at IS NULL
+          ORDER BY expires_at ASC
+        `)
+
+        return rows.rows.map((row: Record<string, unknown>) => rawRowToStreamBlock(row))
+      } catch (error) {
+        throw new DatabaseError('Failed to find expiring stream blocks', error)
+      }
+    },
+
     async markDistilled(ids: readonly string[], runId: string): Promise<number> {
       try {
         const result = await db.execute(sql`

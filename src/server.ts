@@ -6,7 +6,9 @@ import { logger } from './shared/logger.js'
 import { handleApiRequest } from './web/api.js'
 import { HTML } from './web/ui.js'
 import { runStreamCleanup } from './stream/cleanup.js'
+import { createDistillationScheduler } from './distillation/scheduler.js'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { DistillationScheduler } from './distillation/scheduler.js'
 
 const PORT = parseInt(process.env.PORT ?? '3100', 10)
 
@@ -16,7 +18,16 @@ interface Session {
 }
 
 async function main(): Promise<void> {
-  const services = await bootstrapServices()
+  const baseServices = await bootstrapServices()
+
+  const distillationScheduler: DistillationScheduler = createDistillationScheduler(
+    baseServices.distillationService,
+    baseServices.config.distillation.schedule,
+    baseServices.config.distillation.enabled,
+  )
+  distillationScheduler.start()
+
+  const services = { ...baseServices, distillationScheduler }
 
   const sessions = new Map<string, Session>()
 
@@ -155,6 +166,7 @@ async function main(): Promise<void> {
     }
     clearInterval(cleanupInterval)
     clearInterval(streamCleanupInterval)
+    distillationScheduler.stop()
     httpServer.close()
     await services.pool.end()
     process.exit(0)

@@ -7,10 +7,13 @@ import { createEmbeddingService } from './pipeline/embeddings.js'
 import { createMetadataService } from './pipeline/metadata.js'
 import { createCapturePipeline } from './pipeline/capture.js'
 import { createStreamRepository } from './stream/repository.js'
+import { createDistillationRepository } from './distillation/repository.js'
+import { createDistillationService } from './distillation/service.js'
 import type { ThoughtsRepository } from './repository/types.js'
 import type { EmbeddingService } from './pipeline/embeddings.js'
 import type { CapturePipeline } from './pipeline/capture.js'
 import type { StreamRepository } from './stream/types.js'
+import type { DistillationService, DistillationRepository } from './distillation/types.js'
 import type { AppConfig } from './config/schema.js'
 import pg from 'pg'
 
@@ -19,6 +22,9 @@ interface Services {
   readonly embeddingService: EmbeddingService
   readonly pipeline: CapturePipeline
   readonly streamRepository: StreamRepository
+  readonly distillationService: DistillationService
+  readonly distillationRepo: DistillationRepository
+  readonly config: AppConfig
   readonly pool: pg.Pool
 }
 
@@ -35,8 +41,21 @@ async function bootstrap(config: AppConfig): Promise<Services> {
   const metadataService = createMetadataService(apiKey, config.openai.metadata_model)
   const pipeline = createCapturePipeline(embeddingService, metadataService, repository)
   const streamRepository = createStreamRepository(db, config.stream.ttl_days)
+  const distillationRepo = createDistillationRepository(db)
+  const distillationService = createDistillationService(
+    streamRepository,
+    pipeline,
+    distillationRepo,
+    {
+      model: config.distillation.model,
+      temperature: config.distillation.temperature,
+      maxBlocksPerRun: config.distillation.max_blocks_per_run,
+      minBlockLength: config.distillation.min_block_length,
+    },
+    apiKey,
+  )
 
-  return { repository, embeddingService, pipeline, streamRepository, pool }
+  return { repository, embeddingService, pipeline, streamRepository, distillationService, distillationRepo, config, pool }
 }
 
 const program = new Command()
@@ -258,6 +277,100 @@ program
         if (block.topic) process.stdout.write(`  Topic: ${block.topic}\n`)
         process.stdout.write(`  ${block.content.slice(0, 120)}${block.content.length > 120 ? '...' : ''}\n`)
         if (block.participants) process.stdout.write(`  Participants: ${block.participants.join(', ')}\n`)
+      }
+    } finally {
+      await pool.end()
+    }
+  })
+
+program
+  .command('distill')
+  .description('Run distillation — extract thoughts from stream blocks')
+  .action(async () => {
+    const config = await loadConfig()
+    const { distillationService, pool } = await bootstrap(config)
+
+    try {
+      process.stdout.write('Starting distillation...\n')
+      const result = await distillationService.run('cli')
+
+      process.stdout.write(`\nDistillation Complete\n`)
+      process.stdout.write(`${'='.repeat(30)}\n`)
+      process.stdout.write(`Status: ${result.status}\n`)
+      process.stdout.write(`Blocks processed: ${result.blocksProcessed}\n`)
+      process.stdout.write(`Sessions: ${result.sessionsProcessed}\n`)
+      process.stdout.write(`Thoughts created: ${result.thoughtsCreated}\n`)
+      process.stdout.write(`Blocks skipped: ${result.blocksSkipped}\n`)
+      process.stdout.write(`Tokens used: ${result.tokensUsed}\n`)
+      process.stdout.write(`Estimated cost: $${result.estimatedCost.toFixed(6)}\n`)
+      process.stdout.write(`Duration: ${result.durationMs}ms\n`)
+
+      if (result.errorMessage) {
+        process.stdout.write(`Error: ${result.errorMessage}\n`)
+      }
+    } finally {
+      await pool.end()
+    }
+  })
+
+program
+  .command('status')
+  .description('Show consolidated brain status')
+  .action(async () => {
+    const config = await loadConfig()
+    const { repository, streamRepository, distillationRepo, pool, config: appConfig } = await bootstrap(config)
+
+    try {
+      const [thoughtStats, streamStats, recentRuns, expiringBlocks] = await Promise.all([
+        repository.getStats(),
+        streamRepository.getStats(),
+        distillationRepo.getRecentRuns(10),
+        streamRepository.findExpiringBlocks(3),
+      ])
+
+      const lastRun = recentRuns[0] ?? null
+      const now = Date.now()
+      const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000
+      const weeklyThoughts = recentRuns
+        .filter((r) => r.createdAt && r.createdAt.getTime() > sevenDaysAgo)
+        .reduce((sum, r) => sum + r.thoughtsCreated, 0)
+
+      // Compute next cron from config schedule
+      const parts = appConfig.distillation.schedule.split(' ')
+      const cronHour = parseInt(parts[1] ?? '3', 10)
+      const cronMinute = parseInt(parts[0] ?? '0', 10)
+      const nextCron = new Date()
+      nextCron.setHours(cronHour, cronMinute, 0, 0)
+      if (nextCron.getTime() <= now) nextCron.setDate(nextCron.getDate() + 1)
+
+      process.stdout.write(`\nOpen Brain Status\n`)
+      process.stdout.write(`${'='.repeat(40)}\n`)
+
+      process.stdout.write(`\nStream\n`)
+      process.stdout.write(`  Blocks: ${streamStats.totalBlocks} (${streamStats.pendingBlocks} pending, ${streamStats.distilledBlocks} distilled, ${streamStats.pinnedBlocks} pinned)\n`)
+      process.stdout.write(`  Expiring in 3 days: ${expiringBlocks.length}\n`)
+
+      process.stdout.write(`\nDistillation\n`)
+      if (lastRun) {
+        const agoMs = now - (lastRun.createdAt?.getTime() ?? now)
+        const agoHours = Math.round(agoMs / (1000 * 60 * 60))
+        process.stdout.write(`  Last run: ${agoHours}h ago (${lastRun.trigger}, ${lastRun.thoughtsCreated} thoughts, $${lastRun.estimatedCost.toFixed(6)})\n`)
+      } else {
+        process.stdout.write(`  Last run: never\n`)
+      }
+      process.stdout.write(`  Next cron: ${nextCron.toLocaleTimeString()}\n`)
+      process.stdout.write(`  Weekly thoughts extracted: ${weeklyThoughts}\n`)
+
+      process.stdout.write(`\nThoughts\n`)
+      process.stdout.write(`  Total: ${thoughtStats.total}\n`)
+      process.stdout.write(`  Last 7 days: ${thoughtStats.last7Days}\n`)
+      process.stdout.write(`  Last 30 days: ${thoughtStats.last30Days}\n`)
+
+      if (thoughtStats.bySource.size > 0) {
+        process.stdout.write(`\n  By source:\n`)
+        for (const [source, count] of thoughtStats.bySource) {
+          process.stdout.write(`    ${source}: ${count}\n`)
+        }
       }
     } finally {
       await pool.end()

@@ -150,13 +150,14 @@ function isValidUuid(id: string): boolean {
   return UUID_RE.test(id)
 }
 
-function thoughtToJson(t: { id: string; content: string; title: string | null; tags: readonly string[] | null; source: string; contentType: string; weight: number; epistemicStatus: string | null; createdAt: Date | null; compostedAt?: Date | null }) {
+function thoughtToJson(t: { id: string; content: string; title: string | null; tags: readonly string[] | null; source: string; sourceRef: string | null; contentType: string; weight: number; epistemicStatus: string | null; createdAt: Date | null; compostedAt?: Date | null }) {
   return {
     id: t.id,
     content: t.content,
     title: t.title,
     tags: t.tags,
     source: t.source,
+    source_ref: t.sourceRef,
     content_type: t.contentType,
     weight: t.weight,
     epistemic_status: t.epistemicStatus,
@@ -173,6 +174,76 @@ export async function handleApiRequest(
   const { repository, embeddingService } = services
 
   try {
+    // GET /api/brain/status
+    if (url.pathname === '/api/brain/status' && req.method === 'GET') {
+      const [streamStats, thoughtStats, recentRuns, expiringBlocks] = await Promise.all([
+        services.streamRepository.getStats(),
+        services.repository.getStats(),
+        services.distillationRepo.getRecentRuns(100),
+        services.streamRepository.findExpiringBlocks(3),
+      ])
+
+      const lastRun = recentRuns[0] ?? null
+      const now = Date.now()
+      const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000
+      const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000
+
+      const weeklyThoughts = recentRuns
+        .filter((r) => r.createdAt && r.createdAt.getTime() > sevenDaysAgo)
+        .reduce((sum, r) => sum + r.thoughtsCreated, 0)
+
+      const weeklyCost = recentRuns
+        .filter((r) => r.createdAt && r.createdAt.getTime() > sevenDaysAgo)
+        .reduce((sum, r) => sum + r.estimatedCost, 0)
+
+      const monthlyCost = recentRuns
+        .filter((r) => r.createdAt && r.createdAt.getTime() > thirtyDaysAgo)
+        .reduce((sum, r) => sum + r.estimatedCost, 0)
+
+      const totalDistilledBlocks = recentRuns.reduce((sum, r) => sum + r.blocksProcessed, 0)
+      const totalDistilledThoughts = recentRuns.reduce((sum, r) => sum + r.thoughtsCreated, 0)
+      const conversionRate = totalDistilledBlocks > 0
+        ? Math.round((totalDistilledThoughts / totalDistilledBlocks) * 100) / 100
+        : 0
+
+      const scheduler = services.distillationScheduler
+      const nextRun = scheduler ? scheduler.getNextRun() : null
+
+      json(res, {
+        stream: {
+          total_blocks: streamStats.totalBlocks,
+          pending_blocks: streamStats.pendingBlocks,
+          distilled_blocks: streamStats.distilledBlocks,
+          pinned_blocks: streamStats.pinnedBlocks,
+          expiring_soon: expiringBlocks.length,
+        },
+        distillation: {
+          last_run: lastRun ? {
+            id: lastRun.id,
+            trigger: lastRun.trigger,
+            status: lastRun.status,
+            thoughts_created: lastRun.thoughtsCreated,
+            blocks_processed: lastRun.blocksProcessed,
+            estimated_cost: lastRun.estimatedCost,
+            duration_ms: lastRun.durationMs,
+            created_at: lastRun.createdAt?.toISOString() ?? null,
+          } : null,
+          next_run: nextRun?.toISOString() ?? null,
+          weekly_thoughts: weeklyThoughts,
+          conversion_rate: conversionRate,
+          cost_7d: Math.round(weeklyCost * 1000000) / 1000000,
+          cost_30d: Math.round(monthlyCost * 1000000) / 1000000,
+        },
+        thoughts: {
+          total: thoughtStats.total,
+          last_7_days: thoughtStats.last7Days,
+          last_30_days: thoughtStats.last30Days,
+          by_source: Object.fromEntries(thoughtStats.bySource),
+        },
+      })
+      return
+    }
+
     // GET /api/search
     if (url.pathname === '/api/search' && req.method === 'GET') {
       const query = url.searchParams.get('q')
@@ -671,6 +742,7 @@ export async function handleApiRequest(
           source_client: b.sourceClient,
           pinned: b.pinned,
           distilled: b.distilledAt !== null,
+          distillation_run_id: b.distillationRunId,
           created_at: b.createdAt?.toISOString() ?? null,
           expires_at: b.expiresAt?.toISOString() ?? null,
         })),
@@ -756,6 +828,98 @@ export async function handleApiRequest(
         id: updated.id,
         pinned: updated.pinned,
         expires_at: updated.expiresAt?.toISOString() ?? null,
+      })
+      return
+    }
+
+    // POST /api/distillation/run
+    if (url.pathname === '/api/distillation/run' && req.method === 'POST') {
+      if (services.distillationService.isRunning()) {
+        json(res, { error: 'Distillation is already running' }, 409)
+        return
+      }
+      services.distillationService.run('power_nap').catch((err) => {
+        logger.error({ err }, 'Background distillation run failed')
+      })
+      json(res, { started: true })
+      return
+    }
+
+    // GET /api/distillation/status
+    if (url.pathname === '/api/distillation/status' && req.method === 'GET') {
+      const running = services.distillationService.isRunning()
+      const recent = await services.distillationRepo.getRecentRuns(1)
+      const lastRun = recent[0] ?? null
+
+      json(res, {
+        running,
+        last_run: lastRun ? {
+          id: lastRun.id,
+          trigger: lastRun.trigger,
+          status: lastRun.status,
+          thoughts_created: lastRun.thoughtsCreated,
+          blocks_processed: lastRun.blocksProcessed,
+          duration_ms: lastRun.durationMs,
+          created_at: lastRun.createdAt?.toISOString() ?? null,
+        } : null,
+      })
+      return
+    }
+
+    // GET /api/distillation/log
+    if (url.pathname === '/api/distillation/log' && req.method === 'GET') {
+      const limit = clampInt(url.searchParams.get('limit'), 20, 1, 100)
+      const runs = await services.distillationRepo.getRecentRuns(limit)
+
+      json(res, {
+        runs: runs.map((r) => ({
+          id: r.id,
+          trigger: r.trigger,
+          status: r.status,
+          blocks_processed: r.blocksProcessed,
+          sessions_processed: r.sessionsProcessed,
+          thoughts_created: r.thoughtsCreated,
+          thought_ids: r.thoughtIds,
+          blocks_skipped: r.blocksSkipped,
+          tokens_used: r.tokensUsed,
+          estimated_cost: r.estimatedCost,
+          duration_ms: r.durationMs,
+          error_message: r.errorMessage,
+          created_at: r.createdAt?.toISOString() ?? null,
+        })),
+        total: runs.length,
+      })
+      return
+    }
+
+    // GET /api/distillation/log/:id
+    const distillLogMatch = matchPath(url.pathname, '/api/distillation/log/:id')
+    if (distillLogMatch && req.method === 'GET') {
+      const { id } = distillLogMatch
+      if (!id || !isValidUuid(id)) {
+        json(res, { error: 'Invalid run ID' }, 400)
+        return
+      }
+      const run = await services.distillationRepo.getRunById(id)
+      if (!run) {
+        json(res, { error: 'Run not found' }, 404)
+        return
+      }
+      json(res, {
+        id: run.id,
+        trigger: run.trigger,
+        status: run.status,
+        blocks_processed: run.blocksProcessed,
+        sessions_processed: run.sessionsProcessed,
+        thoughts_created: run.thoughtsCreated,
+        thought_ids: run.thoughtIds,
+        blocks_skipped: run.blocksSkipped,
+        skip_reasons: run.skipReasons,
+        tokens_used: run.tokensUsed,
+        estimated_cost: run.estimatedCost,
+        duration_ms: run.durationMs,
+        error_message: run.errorMessage,
+        created_at: run.createdAt?.toISOString() ?? null,
       })
       return
     }
