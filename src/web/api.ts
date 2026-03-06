@@ -905,6 +905,17 @@ export async function handleApiRequest(
         json(res, { error: 'Run not found' }, 404)
         return
       }
+
+      // Enrich thought_ids with titles for UI display
+      const thoughtSummaries = await Promise.all(
+        (run.thoughtIds ?? []).map(async (tid) => {
+          const thought = await repository.findById(tid)
+          return thought
+            ? { id: tid, title: thought.title ?? thought.content.slice(0, 80) }
+            : { id: tid, title: null }
+        }),
+      )
+
       json(res, {
         id: run.id,
         trigger: run.trigger,
@@ -913,6 +924,7 @@ export async function handleApiRequest(
         sessions_processed: run.sessionsProcessed,
         thoughts_created: run.thoughtsCreated,
         thought_ids: run.thoughtIds,
+        thought_summaries: thoughtSummaries,
         blocks_skipped: run.blocksSkipped,
         skip_reasons: run.skipReasons,
         tokens_used: run.tokensUsed,

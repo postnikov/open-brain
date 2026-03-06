@@ -739,7 +739,7 @@ async function loadStream() {
           '<span>' + esc(date) + '</span>' +
           (b.source_client ? '<span>via ' + esc(b.source_client) + '</span>' : '') +
           (participants ? '<span>Participants: ' + esc(participants) + '</span>' : '') +
-          (b.distilled ? '<span style="color:#4a9">distilled</span>' + (b.distillation_run_id ? '<span class="stream-thought-link" onclick="event.stopPropagation();showRunThoughts(\\'' + b.distillation_run_id + '\\')">thoughts</span>' : '') : '') +
+          (b.distilled ? '<span style="color:#4a9">distilled</span>' + (b.distillation_run_id ? '<span class="stream-thought-link" onclick="event.stopPropagation();showRunThoughts(\\'' + b.distillation_run_id + '\\')">→ thoughts</span>' : '') : '') +
           (expires && !b.pinned ? '<span>expires ' + esc(expires) + '</span>' : '') +
         '</div>' +
       '</div>';
@@ -1044,8 +1044,11 @@ async function loadDistillLog() {
     document.getElementById('distillLogResults').innerHTML = data.runs.map(function(run, idx) {
       var date = run.created_at ? new Date(run.created_at).toLocaleString() : '';
       var thoughtLinks = (run.thought_ids || []).map(function(tid) {
-        return '<a href="#" onclick="switchTab(\\'recent\\');return false;" title="' + escAttr(tid) + '">' + tid.slice(0, 8) + '</a>';
+        return '<a href="#" onclick="switchTab(\\'recent\\');return false;" title="' + escAttr(tid) + '">' + tid.slice(0, 8) + '…</a>';
       }).join('');
+      var thoughtTitleLink = run.thoughts_created > 0
+        ? '<a href="#" class="stream-thought-link" onclick="event.stopPropagation();showRunThoughts(\\'' + run.id + '\\');return false;">show titles</a>'
+        : '';
       var skipReasons = '';
       if (run.blocks_skipped > 0) { try { var sr = JSON.parse(run.skip_reasons || '{}'); skipReasons = Object.entries(sr).map(function(e) { return e[0] + ': ' + e[1]; }).join(', '); } catch(e) {} }
 
@@ -1065,7 +1068,7 @@ async function loadDistillLog() {
           '<span>' + (run.duration_ms || 0) + 'ms</span>' +
         '</div>' +
         '<div class="distill-run-detail">' +
-          (run.thoughts_created > 0 ? '<div style="margin-bottom:6px;color:#aaa">Created thoughts:</div><div class="distill-run-thoughts">' + thoughtLinks + '</div>' : '') +
+          (run.thoughts_created > 0 ? '<div style="margin-bottom:6px;color:#aaa">Created thoughts: ' + thoughtTitleLink + '</div><div class="distill-run-thoughts">' + thoughtLinks + '</div>' : '') +
           (run.blocks_skipped > 0 ? '<div style="margin-top:6px">Skipped: ' + run.blocks_skipped + (skipReasons ? ' (' + esc(skipReasons) + ')' : '') + '</div>' : '') +
           (run.error_message ? '<div style="margin-top:6px;color:#a66">Error: ' + esc(run.error_message) + '</div>' : '') +
         '</div>' +
@@ -1083,7 +1086,11 @@ async function showRunThoughts(runId) {
       showToast('No thoughts created in this run');
       return;
     }
-    await modalAlert('Thoughts created: ' + data.thought_ids.length + '\\n\\n' + data.thought_ids.map(function(id) { return id.slice(0, 12); }).join(', '), 'Distillation Run');
+    var summaries = data.thought_summaries || [];
+    var lines = summaries.map(function(s) {
+      return (s.title || s.id.slice(0, 12));
+    });
+    await modalAlert('Thoughts created: ' + data.thought_ids.length + '\\n\\n' + lines.join('\\n'), 'Distillation Run');
   } catch(e) { showToast('Error loading run details'); }
 }
 
