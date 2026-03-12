@@ -7,3 +7,4 @@ dist/
 *.js.map
 !drizzle.config.ts
 docs/PRD*.md
+docs/open-brain-roadmap.md
