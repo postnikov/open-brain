@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { basename, relative } from 'node:path'

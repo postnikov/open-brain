@@ -1,4 +1,5 @@
 #!/usr/bin/env npx tsx
+import 'dotenv/config'
 import { Command } from 'commander'
 import { loadConfig, getDatabaseUrl } from './config/loader.js'
 import { createDatabase } from './db/connection.js'

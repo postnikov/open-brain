@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { bootstrapServices, createMcpServer } from './bootstrap.js'
 import { logger } from './shared/logger.js'
