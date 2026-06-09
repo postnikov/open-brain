@@ -1,7 +1,7 @@
 import { sql, desc, eq, and, gte, lte, isNull, type SQL } from 'drizzle-orm'
 import { thoughts, dismissedPairs } from '../db/schema.js'
 import type { Database } from '../db/connection.js'
-import type { Thought, CreateThoughtInput, UpdateThoughtInput, SearchFilters, SearchResult, ThoughtStats, DuplicatePair, ThoughtsRepository } from './types.js'
+import type { Thought, CreateThoughtInput, UpdateThoughtInput, SearchFilters, SearchResult, ThoughtStats, DuplicatePair, OrphanTag, ThoughtsRepository } from './types.js'
 import { DatabaseError } from '../shared/errors.js'
 
 function toThought(row: typeof thoughts.$inferSelect): Thought {
@@ -241,6 +241,30 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
         return result
       } catch (error) {
         throw new DatabaseError('Failed to list tags', error)
+      }
+    },
+
+    async findOrphanTags(): Promise<readonly OrphanTag[]> {
+      try {
+        const rows = await db.execute(sql`
+          SELECT o.tag, t.*
+          FROM (
+            SELECT tag, (array_agg(id))[1] AS thought_id
+            FROM thoughts, unnest(tags) AS tag
+            WHERE composted_at IS NULL
+            GROUP BY tag
+            HAVING count(*) = 1
+          ) o
+          JOIN thoughts t ON t.id = o.thought_id
+          ORDER BY o.tag
+        `)
+
+        return rows.rows.map((row) => ({
+          tag: row.tag as string,
+          thought: rawRowToThought(row),
+        }))
+      } catch (error) {
+        throw new DatabaseError('Failed to find orphan tags', error)
       }
     },
 

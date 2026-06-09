@@ -310,25 +310,15 @@ export async function handleApiRequest(
 
     // GET /api/tags/orphans
     if (url.pathname === '/api/tags/orphans' && req.method === 'GET') {
-      const tags = await repository.listTags()
-      const orphanTags = Array.from(tags.entries())
-        .filter(([, count]) => count === 1)
-        .map(([tag]) => tag)
+      const orphans = await repository.findOrphanTags()
 
-      const orphans = await Promise.all(
-        orphanTags.map(async (tag) => {
-          const tagThoughts = await repository.findByTag(tag)
-          const thought = tagThoughts[0]
-          return {
-            tag,
-            thought: thought
-              ? { id: thought.id, title: thought.title, content: thought.content, source: thought.source, created_at: thought.createdAt?.toISOString() ?? null }
-              : null,
-          }
-        }),
-      )
-
-      json(res, { orphans, total: orphans.length })
+      json(res, {
+        orphans: orphans.map(({ tag, thought }) => ({
+          tag,
+          thought: { id: thought.id, title: thought.title, content: thought.content, source: thought.source, created_at: thought.createdAt?.toISOString() ?? null },
+        })),
+        total: orphans.length,
+      })
       return
     }
 

@@ -67,6 +67,11 @@ export interface DuplicatePair {
   readonly similarity: number
 }
 
+export interface OrphanTag {
+  readonly tag: string
+  readonly thought: Thought
+}
+
 export interface ThoughtsRepository {
   readonly create: (input: CreateThoughtInput) => Promise<Thought>
   readonly search: (embedding: readonly number[], limit: number, minSimilarity: number, filters?: SearchFilters) => Promise<readonly SearchResult[]>
@@ -76,6 +81,7 @@ export interface ThoughtsRepository {
   readonly findRelated: (id: string, limit: number) => Promise<readonly SearchResult[]>
   readonly deleteById: (id: string) => Promise<boolean>
   readonly listTags: () => Promise<ReadonlyMap<string, number>>
+  readonly findOrphanTags: () => Promise<readonly OrphanTag[]>
   readonly renameTag: (oldTag: string, newTag: string) => Promise<number>
   readonly update: (id: string, input: UpdateThoughtInput) => Promise<Thought | null>
   readonly removeTagFromThought: (thoughtId: string, tag: string) => Promise<boolean>
