@@ -1,63 +1,7 @@
 #!/usr/bin/env npx tsx
 import 'dotenv/config'
 import { Command } from 'commander'
-import { loadConfig, getDatabaseUrl } from './config/loader.js'
-import { createDatabase } from './db/connection.js'
-import { createThoughtsRepository } from './repository/thoughts.js'
-import { createEmbeddingService } from './pipeline/embeddings.js'
-import { createMetadataService } from './pipeline/metadata.js'
-import { createCapturePipeline } from './pipeline/capture.js'
-import { createStreamRepository } from './stream/repository.js'
-import { createDistillationRepository } from './distillation/repository.js'
-import { createDistillationService } from './distillation/service.js'
-import type { ThoughtsRepository } from './repository/types.js'
-import type { EmbeddingService } from './pipeline/embeddings.js'
-import type { CapturePipeline } from './pipeline/capture.js'
-import type { StreamRepository } from './stream/types.js'
-import type { DistillationService, DistillationRepository } from './distillation/types.js'
-import type { AppConfig } from './config/schema.js'
-import pg from 'pg'
-
-interface Services {
-  readonly repository: ThoughtsRepository
-  readonly embeddingService: EmbeddingService
-  readonly pipeline: CapturePipeline
-  readonly streamRepository: StreamRepository
-  readonly distillationService: DistillationService
-  readonly distillationRepo: DistillationRepository
-  readonly config: AppConfig
-  readonly pool: pg.Pool
-}
-
-async function bootstrap(config: AppConfig): Promise<Services> {
-  const databaseUrl = getDatabaseUrl(config)
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is required')
-  }
-
-  const { db, pool } = await createDatabase(databaseUrl)
-  const repository = createThoughtsRepository(db)
-  const embeddingService = createEmbeddingService(apiKey, config.openai.embedding_model)
-  const metadataService = createMetadataService(apiKey, config.openai.metadata_model)
-  const pipeline = createCapturePipeline(embeddingService, metadataService, repository)
-  const streamRepository = createStreamRepository(db, config.stream.ttl_days)
-  const distillationRepo = createDistillationRepository(db)
-  const distillationService = createDistillationService(
-    streamRepository,
-    pipeline,
-    distillationRepo,
-    {
-      model: config.distillation.model,
-      temperature: config.distillation.temperature,
-      maxBlocksPerRun: config.distillation.max_blocks_per_run,
-      minBlockLength: config.distillation.min_block_length,
-    },
-    apiKey,
-  )
-
-  return { repository, embeddingService, pipeline, streamRepository, distillationService, distillationRepo, config, pool }
-}
+import { bootstrapServices } from './bootstrap.js'
 
 const program = new Command()
   .name('brain')
@@ -72,8 +16,7 @@ program
   .option('-t, --type <type>', 'Content type')
   .option('--tags <tags>', 'Comma-separated tags')
   .action(async (content: string, opts: { source: string; type?: string; tags?: string }) => {
-    const config = await loadConfig()
-    const { pipeline, pool } = await bootstrap(config)
+    const { pipeline, pool } = await bootstrapServices()
 
     try {
       const { thought } = await pipeline.capture({
@@ -100,8 +43,7 @@ program
   .option('-l, --limit <n>', 'Max results', '10')
   .option('-m, --min-similarity <n>', 'Min similarity', '0.3')
   .action(async (query: string, opts: { limit: string; minSimilarity: string }) => {
-    const config = await loadConfig()
-    const { embeddingService, repository, pool } = await bootstrap(config)
+    const { embeddingService, repository, pool } = await bootstrapServices()
 
     try {
       const embedding = await embeddingService.embed(query)
@@ -128,8 +70,7 @@ program
   .option('-l, --limit <n>', 'Number of thoughts', '20')
   .option('-s, --source <source>', 'Filter by source')
   .action(async (opts: { limit: string; source?: string }) => {
-    const config = await loadConfig()
-    const { repository, pool } = await bootstrap(config)
+    const { repository, pool } = await bootstrapServices()
 
     try {
       const thoughts = await repository.findRecent(parseInt(opts.limit, 10), {
@@ -156,8 +97,7 @@ program
   .command('stats')
   .description('Show database statistics')
   .action(async () => {
-    const config = await loadConfig()
-    const { repository, pool } = await bootstrap(config)
+    const { repository, pool } = await bootstrapServices()
 
     try {
       const stats = await repository.getStats()
@@ -190,8 +130,7 @@ program
   .command('tags')
   .description('List all tags with counts')
   .action(async () => {
-    const config = await loadConfig()
-    const { repository, pool } = await bootstrap(config)
+    const { repository, pool } = await bootstrapServices()
 
     try {
       const tags = await repository.listTags()
@@ -217,8 +156,7 @@ program
   .argument('<old>', 'Tag to rename')
   .argument('<new>', 'New tag name')
   .action(async (oldTag: string, newTag: string) => {
-    const config = await loadConfig()
-    const { repository, pool } = await bootstrap(config)
+    const { repository, pool } = await bootstrapServices()
 
     try {
       const affected = await repository.renameTag(oldTag, newTag)
@@ -233,8 +171,7 @@ program
   .description('Delete a thought by ID')
   .argument('<id>', 'Thought UUID')
   .action(async (id: string) => {
-    const config = await loadConfig()
-    const { repository, pool } = await bootstrap(config)
+    const { repository, pool } = await bootstrapServices()
 
     try {
       const thought = await repository.findById(id)
@@ -257,8 +194,7 @@ program
   .option('-s, --session <id>', 'Filter by session ID')
   .option('--status <status>', 'Filter: pending, distilled, pinned')
   .action(async (opts: { limit: string; session?: string; status?: string }) => {
-    const config = await loadConfig()
-    const { streamRepository, pool } = await bootstrap(config)
+    const { streamRepository, pool } = await bootstrapServices()
 
     try {
       const blocks = await streamRepository.findRecent(parseInt(opts.limit, 10), {
@@ -288,8 +224,7 @@ program
   .command('distill')
   .description('Run distillation — extract thoughts from stream blocks')
   .action(async () => {
-    const config = await loadConfig()
-    const { distillationService, pool } = await bootstrap(config)
+    const { distillationService, pool } = await bootstrapServices()
 
     try {
       process.stdout.write('Starting distillation...\n')
@@ -318,8 +253,7 @@ program
   .command('status')
   .description('Show consolidated brain status')
   .action(async () => {
-    const config = await loadConfig()
-    const { repository, streamRepository, distillationRepo, pool, config: appConfig } = await bootstrap(config)
+    const { repository, streamRepository, distillationRepo, pool, config: appConfig } = await bootstrapServices()
 
     try {
       const [thoughtStats, streamStats, recentRuns, expiringBlocks] = await Promise.all([
