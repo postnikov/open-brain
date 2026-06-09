@@ -17,7 +17,8 @@
     "export": "node --env-file=.env --import tsx/esm src/scripts/export.ts",
     "export:md": "node --env-file=.env --import tsx/esm src/scripts/export.ts markdown",
     "backup": "bash src/scripts/backup.sh",
-    "test": "vitest",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:api": "bash scripts/test-api.sh"
   },
   "dependencies": {
