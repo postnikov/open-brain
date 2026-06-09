@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { logger } from '../shared/logger.js'
 import { DistillationError } from '../shared/errors.js'
 import { buildDistillationPrompt, parseDistillationResponse } from './prompt.js'
+import { estimateCost } from './pricing.js'
 import type { StreamRepository } from '../stream/types.js'
 import type { CapturePipeline } from '../pipeline/capture.js'
 import type { DistillationRepository, DistillationRunResult, DistillationService } from './types.js'
@@ -89,10 +90,9 @@ export function createDistillationService(
           }
 
           tokensUsed = (response.usage?.total_tokens ?? 0)
-          // gpt-4o-mini pricing: $0.15/1M input, $0.60/1M output
           const inputTokens = response.usage?.prompt_tokens ?? 0
           const outputTokens = response.usage?.completion_tokens ?? 0
-          estimatedCost = (inputTokens * 0.00000015) + (outputTokens * 0.0000006)
+          estimatedCost = estimateCost(config.model, inputTokens, outputTokens)
 
           const parsed = parseDistillationResponse(raw)
           thoughts = parsed.thoughts.map((t) => ({
