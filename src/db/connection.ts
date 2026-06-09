@@ -11,6 +11,13 @@ export async function createDatabase(connectionString: string): Promise<{ db: Da
   try {
     const pool = new pg.Pool({ connectionString })
 
+    // Register vector types on every pooled connection, not just the first one
+    pool.on('connect', (client) => {
+      void pgvector.registerTypes(client).catch((error: unknown) => {
+        logger.error({ err: error }, 'Failed to register pgvector types')
+      })
+    })
+
     const client = await pool.connect()
     await pgvector.registerTypes(client)
     client.release()
