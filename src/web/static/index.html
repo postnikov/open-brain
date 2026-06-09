@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open Brain</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>Open Brain <span id="totalCount"></span></h1>
+    <div class="header-actions"><button id="batchToggle" data-action="toggle-batch">Select</button></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="search" onclick="switchTab('search')">Search</div>
+    <div class="tab" data-tab="timeline" onclick="switchTab('timeline')">Timeline</div>
+    <div class="tab" data-tab="recent" onclick="switchTab('recent')">Recent</div>
+    <div class="tab" data-tab="review" onclick="switchTab('review')">Review</div>
+    <div class="tab" data-tab="compost" onclick="switchTab('compost')">Compost</div>
+    <div class="tab" data-tab="duplicates" onclick="switchTab('duplicates')">Duplicates</div>
+    <div class="tab" data-tab="stream" onclick="switchTab('stream')">Stream</div>
+    <div class="tab" data-tab="import" onclick="switchTab('import')">Import</div>
+    <div class="tab" data-tab="activity" onclick="switchTab('activity')">Activity</div>
+    <div class="tab" data-tab="stats" onclick="switchTab('stats')">Status</div>
+    <div class="tab" data-tab="distill-log" onclick="switchTab('distill-log')">Distill Log</div>
+  </div>
+
+  <div id="search-view"><div class="search-box"><input type="text" id="searchInput" placeholder="Semantic search..." autofocus></div><div id="searchResults"></div></div>
+  <div id="timeline-view" style="display:none"><div class="search-box"><input type="text" id="timelineInput" placeholder="Search topic to see evolution over time..."></div><div id="timelineResults"></div></div>
+  <div id="recent-view" style="display:none"><div class="filters" id="sourceFilters"></div><div id="recentResults"></div></div>
+  <div id="review-view" style="display:none"><div class="review-nav"><button data-action="review-earlier">\u2190 Earlier</button><span class="review-label" id="reviewLabel">7 days ago</span><button data-action="review-later">Later \u2192</button></div><div id="reviewResults"></div></div>
+  <div id="compost-view" style="display:none"><div id="compostResults"></div></div>
+  <div id="duplicates-view" style="display:none"><div id="duplicatesResults"></div></div>
+  <div id="stream-view" style="display:none">
+    <div class="power-nap-bar">
+      <div id="distillationStatus" class="distillation-status"></div>
+      <button class="power-nap-btn" id="powerNapBtn" onclick="triggerPowerNap()">Power Nap</button>
+    </div>
+    <div class="stream-controls">
+      <div class="search-box"><input type="text" id="streamSearchInput" placeholder="Search stream content..."></div>
+      <div class="stream-filters">
+        <select id="streamSessionFilter" onchange="loadStream()"><option value="">All sessions</option></select>
+        <select id="streamStatusFilter" onchange="loadStream()"><option value="">All status</option><option value="pending">Pending</option><option value="distilled">Distilled</option><option value="pinned">Pinned</option></select>
+      </div>
+    </div>
+    <div id="streamStats" class="stream-stats-bar"></div>
+    <div id="streamResults"></div>
+  </div>
+  <div id="toast" class="toast"></div>
+  <div id="import-view" style="display:none">
+    <div class="import-section">
+      <h3>File Upload</h3>
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        Drag & drop .md or .txt files here, or click to browse
+        <input type="file" id="fileInput" multiple accept=".md,.txt">
+      </div>
+      <div class="file-list" id="uploadFileList"></div>
+      <div class="import-controls" id="uploadControls" style="display:none">
+        <label style="color:#666;font-size:12px">Source:</label>
+        <select id="uploadSource"><option>upload</option><option>obsidian</option><option>telegram</option><option>cli</option></select>
+        <button id="uploadBtn" onclick="startFileUpload()">Import files</button>
+      </div>
+    </div>
+    <div class="import-section">
+      <h3>Obsidian Vault</h3>
+      <div class="import-controls">
+        <input type="text" id="vaultPath" placeholder="/path/to/obsidian/vault" style="flex:1">
+        <button onclick="scanVault()">Scan</button>
+      </div>
+      <div id="vaultResults"></div>
+    </div>
+    <div id="importProgress"></div>
+  </div>
+  <div id="activity-view" style="display:none"><div id="activityStats"></div><div class="activity-filters" id="activityFilters"></div><div id="activityResults"></div></div>
+  <div id="stats-view" style="display:none"><div id="statsContent"></div></div>
+  <div id="distill-log-view" style="display:none"><div class="distill-limit-selector">Show: <button class="active" onclick="distillLogLimit=10;loadDistillLog()">10</button><button onclick="distillLogLimit=20;loadDistillLog()">20</button><button onclick="distillLogLimit=50;loadDistillLog()">50</button></div><div id="distillLogResults"></div></div>
+
+  <div id="status"></div>
+</div>
+
+<div id="modalRoot"></div>
+
+<div class="batch-toolbar" id="batchToolbar">
+  <span class="batch-count" id="batchCount">0 selected</span>
+  <button data-action="batch-select-all">All</button>
+  <button data-action="batch-clear">Clear</button>
+  <span class="batch-spacer"></span>
+  <button data-action="batch-tag">+ Tag</button>
+  <button data-action="batch-status">Status</button>
+  <button class="batch-danger" data-action="batch-compost">Compost</button>
+  <button class="batch-danger" data-action="batch-delete">Delete</button>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

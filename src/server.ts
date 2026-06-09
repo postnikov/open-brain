@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { bootstrapServices, createMcpServer } from './bootstrap.js'
 import { logger } from './shared/logger.js'
 import { handleApiRequest } from './web/api.js'
-import { HTML } from './web/ui.js'
+import { serveStatic } from './web/static.js'
 import { runStreamCleanup } from './stream/cleanup.js'
 import { createDistillationScheduler } from './distillation/scheduler.js'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -41,9 +41,7 @@ async function main(): Promise<void> {
       return
     }
 
-    if (url.pathname === '/' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(HTML)
+    if (req.method === 'GET' && (await serveStatic(url.pathname, res))) {
       return
     }
 

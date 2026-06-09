@@ -1,364 +1,9 @@
-export const HTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Open Brain</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; }
-  .container { max-width: 800px; margin: 0 auto; padding: 20px; padding-bottom: 80px; }
-  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-  h1 { font-size: 24px; color: #fff; }
-  h1 span { color: #666; font-weight: 400; font-size: 14px; margin-left: 8px; }
-  .header-actions button { background: #1a1a1a; border: 1px solid #333; color: #999; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-  .header-actions button:hover { color: #fff; border-color: #555; }
-  .header-actions button.active { background: #2a2a2a; color: #fff; border-color: #555; }
-
-  .tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
-  .tab { padding: 8px 16px; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; cursor: pointer; color: #999; font-size: 14px; }
-  .tab.active { background: #2a2a2a; color: #fff; border-color: #555; }
-
-  .search-box { position: relative; margin-bottom: 20px; }
-  .search-box input { width: 100%; padding: 12px 16px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 16px; outline: none; }
-  .search-box input:focus { border-color: #666; }
-  .search-box input::placeholder { color: #555; }
-
-  .filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-  .filter-chip { padding: 4px 10px; background: #1a1a1a; border: 1px solid #333; border-radius: 12px; font-size: 12px; color: #999; cursor: pointer; user-select: none; }
-  .filter-chip.active { background: #333; color: #fff; border-color: #555; }
-
-  .thought { background: #111; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-bottom: 12px; cursor: pointer; transition: opacity 0.3s, transform 0.3s, max-height 0.5s, margin-bottom 0.3s, padding 0.3s; position: relative; }
-  .thought:hover { border-color: #444; }
-  .thought.selected { border-color: #4a9; background: #0d1a0d; }
-  .thought-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 8px; }
-  .thought-title { font-weight: 600; color: #fff; font-size: 15px; }
-  .thought-badges { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
-  .thought-similarity { color: #4a9; font-size: 13px; font-weight: 500; }
-  .weight-badge { font-size: 11px; padding: 1px 6px; border-radius: 3px; background: #1a1a2a; color: #88a; }
-  .epistemic-badge { font-size: 11px; padding: 1px 6px; border-radius: 3px; cursor: pointer; position: relative; }
-  .epistemic-badge[data-status="hypothesis"] { background: #2a2a1a; color: #aa8; }
-  .epistemic-badge[data-status="conviction"] { background: #1a1a2a; color: #88a; }
-  .epistemic-badge[data-status="fact"] { background: #1a2a1a; color: #6a6; }
-  .epistemic-badge[data-status="outdated"] { background: #2a1a1a; color: #666; text-decoration: line-through; }
-  .epistemic-badge[data-status="question"] { background: #2a1a1a; color: #a66; }
-  .epistemic-badge:not([data-status]) { background: #1a1a1a; color: #555; }
-  .thought-content { color: #aaa; font-size: 14px; line-height: 1.5; margin-bottom: 10px; white-space: pre-wrap; word-break: break-word; }
-  .thought-content.collapsed { max-height: 80px; overflow: hidden; position: relative; }
-  .thought-content.collapsed::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 30px; background: linear-gradient(transparent, #111); }
-  .thought-meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-  .thought-tags { display: flex; gap: 4px; flex-wrap: wrap; }
-  .tag { padding: 2px 8px; background: #1a2a1a; border-radius: 4px; font-size: 11px; color: #6a6; }
-  .thought-source { font-size: 12px; color: #666; }
-  .thought-date { font-size: 12px; color: #666; }
-  .thought-actions { margin-left: auto; display: flex; gap: 2px; }
-  .thought-actions button { background: none; border: none; color: #555; cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; }
-  .thought-actions button:hover { color: #fff; background: #333; }
-  .thought-actions button[data-action="delete"]:hover, .thought-actions button[data-action="compost"]:hover { color: #c44; background: #2a1a1a; }
-
-  .days-badge { font-size: 11px; padding: 2px 8px; border-radius: 3px; background: #2a1a1a; color: #a66; }
-
-  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .stat-card { background: #111; border: 1px solid #222; border-radius: 8px; padding: 16px; text-align: center; }
-  .stat-value { font-size: 28px; font-weight: 700; color: #fff; }
-  .stat-label { font-size: 12px; color: #666; margin-top: 4px; }
-
-  .loading { text-align: center; padding: 40px; color: #555; }
-  .empty { text-align: center; padding: 40px; color: #555; }
-  #status { font-size: 12px; color: #444; text-align: center; margin-top: 20px; }
-
-  .thought.editing { border-color: #555; cursor: default; }
-  .thought.editing .thought-content { max-height: none; }
-  .thought.editing .thought-content::after { display: none; }
-  .edit-title { width: 100%; padding: 4px 8px; background: #1a1a1a; border: 1px solid #444; border-radius: 4px; color: #fff; font-size: 15px; font-weight: 600; font-family: inherit; }
-  .edit-content { width: 100%; min-height: 80px; padding: 8px; background: #1a1a1a; border: 1px solid #444; border-radius: 4px; color: #aaa; font-size: 14px; line-height: 1.5; font-family: inherit; resize: vertical; }
-  .edit-tags { width: 100%; padding: 4px 8px; background: #1a1a1a; border: 1px solid #444; border-radius: 4px; color: #6a6; font-size: 12px; font-family: inherit; }
-  .edit-actions { display: flex; gap: 8px; margin-top: 10px; }
-  .edit-actions button { padding: 5px 14px; border-radius: 4px; border: 1px solid #444; cursor: pointer; font-size: 13px; }
-  .btn-save { background: #1a3a1a; color: #6a6; border-color: #2a4a2a; }
-  .btn-save:hover { background: #2a4a2a; }
-  .btn-save:disabled { opacity: 0.5; cursor: wait; }
-  .btn-cancel { background: #1a1a1a; color: #999; }
-  .btn-cancel:hover { background: #2a2a2a; }
-  .edit-status { font-size: 12px; color: #4a9; margin-left: auto; line-height: 28px; }
-
-  .orphan-section h3 { margin: 24px 0 12px; color: #999; font-size: 14px; }
-  .orphan-item { display: flex; justify-content: space-between; align-items: center; background: #111; border: 1px solid #222; border-radius: 8px; padding: 10px 16px; margin-bottom: 8px; }
-  .orphan-item:hover { border-color: #444; }
-  .orphan-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .orphan-thought { color: #666; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-  .status-menu { position: absolute; top: 100%; right: 0; background: #1a1a1a; border: 1px solid #444; border-radius: 6px; padding: 4px 0; z-index: 10; min-width: 140px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-  .status-menu-item { padding: 6px 12px; cursor: pointer; font-size: 12px; white-space: nowrap; }
-  .status-menu-item:hover { background: #333; }
-
-  .dup-pair { background: #111; border: 1px solid #222; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
-  .dup-pair:hover { border-color: #444; }
-  .dup-header { padding: 10px 16px; border-bottom: 1px solid #222; display: flex; justify-content: space-between; align-items: center; }
-  .dup-sim { color: #4a9; font-weight: 600; font-size: 14px; }
-  .dup-body { display: flex; gap: 0; }
-  .dup-side { flex: 1; padding: 12px 16px; min-width: 0; }
-  .dup-side + .dup-side { border-left: 1px solid #222; }
-  .dup-side-title { font-weight: 600; color: #fff; font-size: 14px; margin-bottom: 6px; }
-  .dup-side-content { color: #aaa; font-size: 13px; line-height: 1.4; max-height: 120px; overflow: hidden; white-space: pre-wrap; word-break: break-word; margin-bottom: 8px; }
-  .dup-side-meta { font-size: 11px; color: #666; }
-  .dup-side-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-  .dup-actions { padding: 10px 16px; border-top: 1px solid #222; display: flex; gap: 8px; }
-  .dup-actions button { padding: 5px 12px; border-radius: 4px; border: 1px solid #333; background: #1a1a1a; color: #999; cursor: pointer; font-size: 12px; }
-  .dup-actions button:hover { color: #fff; border-color: #555; }
-  .dup-actions button.dup-keep { border-color: #1a3a1a; color: #6a6; }
-  .dup-actions button.dup-keep:hover { background: #1a3a1a; }
-  .dup-actions button.dup-danger { border-color: #2a1a1a; color: #a66; }
-  .dup-actions button.dup-danger:hover { background: #2a1a1a; color: #c44; }
-  @media (max-width: 600px) { .dup-body { flex-direction: column; } .dup-side + .dup-side { border-left: none; border-top: 1px solid #222; } }
-
-  .activity-entry { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; background: #111; border: 1px solid #222; border-radius: 8px; margin-bottom: 8px; }
-  .activity-entry:hover { border-color: #444; }
-  .activity-entry.error { border-left: 3px solid #a44; }
-  .activity-icon { font-size: 18px; flex-shrink: 0; width: 28px; text-align: center; padding-top: 2px; }
-  .activity-body { flex: 1; min-width: 0; }
-  .activity-header { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
-  .activity-tool { font-weight: 600; color: #fff; font-size: 13px; }
-  .activity-client { font-size: 11px; padding: 1px 8px; border-radius: 3px; background: #1a1a2a; color: #88a; }
-  .activity-duration { font-size: 11px; color: #666; }
-  .activity-time { font-size: 11px; color: #555; margin-left: auto; }
-  .activity-summary { font-size: 13px; color: #aaa; }
-  .activity-output { font-size: 12px; color: #666; margin-top: 2px; }
-  .activity-error { font-size: 12px; color: #a66; margin-top: 2px; }
-  .activity-filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-  .activity-filters button { padding: 4px 10px; background: #1a1a1a; border: 1px solid #333; border-radius: 12px; font-size: 12px; color: #999; cursor: pointer; }
-  .activity-filters button:hover, .activity-filters button.active { background: #333; color: #fff; border-color: #555; }
-
-  .import-section { background: #111; border: 1px solid #222; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
-  .import-section h3 { color: #fff; font-size: 15px; margin-bottom: 12px; }
-  .drop-zone { border: 2px dashed #333; border-radius: 8px; padding: 32px; text-align: center; color: #555; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
-  .drop-zone:hover, .drop-zone.dragover { border-color: #4a9; background: #0d1a0d; color: #4a9; }
-  .drop-zone input[type="file"] { display: none; }
-  .file-list { margin-top: 12px; }
-  .file-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #1a1a1a; border-radius: 4px; margin-bottom: 4px; font-size: 13px; }
-  .file-item .file-name { color: #aaa; }
-  .file-item .file-size { color: #666; font-size: 11px; }
-  .file-item button { background: none; border: none; color: #555; cursor: pointer; font-size: 14px; }
-  .file-item button:hover { color: #c44; }
-  .import-controls { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
-  .import-controls select, .import-controls input { padding: 6px 10px; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; color: #fff; font-size: 13px; }
-  .import-controls button { padding: 8px 18px; border-radius: 6px; border: 1px solid #2a4a2a; background: #1a3a1a; color: #6a6; cursor: pointer; font-size: 13px; }
-  .import-controls button:hover { background: #2a4a2a; }
-  .import-controls button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .vault-files { max-height: 300px; overflow-y: auto; margin-top: 12px; border: 1px solid #222; border-radius: 6px; }
-  .vault-file { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px; border-bottom: 1px solid #1a1a1a; }
-  .vault-file:last-child { border-bottom: none; }
-  .vault-file input[type="checkbox"] { accent-color: #4a9; }
-  .vault-file .vf-path { color: #aaa; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .vault-file .vf-size { color: #666; font-size: 11px; flex-shrink: 0; }
-  .progress-box { background: #111; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-top: 16px; }
-  .progress-bar { height: 6px; background: #222; border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
-  .progress-fill { height: 100%; background: #4a9; border-radius: 3px; transition: width 0.3s; }
-  .progress-text { font-size: 13px; color: #aaa; }
-  .progress-detail { font-size: 12px; color: #666; margin-top: 4px; }
-  .progress-errors { font-size: 12px; color: #a66; margin-top: 6px; }
-
-  .stream-controls { margin-bottom: 16px; }
-  .stream-filters { display: flex; gap: 8px; margin-top: 8px; }
-  .stream-filters select { padding: 6px 10px; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; color: #fff; font-size: 13px; }
-  .stream-stats-bar { display: flex; gap: 16px; padding: 10px 16px; background: #111; border: 1px solid #222; border-radius: 8px; margin-bottom: 16px; font-size: 13px; color: #888; }
-  .stream-stats-bar span { color: #fff; font-weight: 500; }
-  .stream-block { background: #111; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-bottom: 10px; }
-  .stream-block:hover { border-color: #444; }
-  .stream-block.pinned { border-left: 3px solid #4a9; }
-  .stream-block.distilled { opacity: 0.6; }
-  .stream-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
-  .stream-session-badge { font-size: 12px; padding: 2px 8px; background: #1a1a2a; border-radius: 4px; color: #88a; }
-  .stream-topic { font-size: 13px; color: #4a9; font-weight: 500; }
-  .stream-content { color: #aaa; font-size: 14px; line-height: 1.5; margin-bottom: 10px; white-space: pre-wrap; word-break: break-word; }
-  .stream-meta { display: flex; gap: 12px; align-items: center; font-size: 12px; color: #666; flex-wrap: wrap; }
-  .stream-actions { display: flex; gap: 6px; }
-  .stream-actions button { background: none; border: 1px solid #333; color: #888; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
-  .stream-actions button:hover { color: #fff; border-color: #555; }
-
-  .power-nap-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; }
-  .power-nap-btn { background: #1a2a1a; border: 1px solid #2a4a2a; color: #6a6; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
-  .power-nap-btn:hover { background: #2a4a2a; color: #8c8; border-color: #4a6a4a; }
-  .power-nap-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .distillation-status { font-size: 12px; color: #888; }
-  .distillation-status .running { color: #4a9; }
-
-  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1a2a1a; border: 1px solid #2a4a2a; color: #6a6; padding: 10px 20px; border-radius: 8px; font-size: 14px; z-index: 100; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
-  .toast.visible { opacity: 1; }
-  .toast.warning { background: #2a2a1a; border-color: #4a3a1a; color: #a86; }
-
-  .status-section { background: #111; border: 1px solid #222; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
-  .status-section h3 { color: #fff; font-size: 15px; margin-bottom: 12px; border-bottom: 1px solid #222; padding-bottom: 8px; }
-  .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
-  .status-warning { color: #a86; font-weight: 500; }
-
-  .distill-run { background: #111; border: 1px solid #222; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
-  .distill-run:hover { border-color: #444; }
-  .distill-run-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px; }
-  .distill-run-stats { display: flex; gap: 12px; font-size: 13px; color: #888; flex-wrap: wrap; }
-  .distill-run-detail { margin-top: 10px; padding-top: 10px; border-top: 1px solid #222; font-size: 13px; color: #888; display: none; }
-  .distill-run-detail.open { display: block; }
-  .distill-run-thoughts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-  .distill-run-thoughts a { color: #4a9; font-size: 12px; text-decoration: none; padding: 2px 6px; background: #0d1a0d; border-radius: 3px; }
-  .distill-run-thoughts a:hover { background: #1a3a1a; }
-  .trigger-badge { font-size: 11px; padding: 2px 8px; border-radius: 3px; }
-  .trigger-badge[data-trigger="cron"] { background: #1a1a2a; color: #88a; }
-  .trigger-badge[data-trigger="power_nap"] { background: #1a2a1a; color: #6a6; }
-  .trigger-badge[data-trigger="cli"] { background: #2a2a1a; color: #aa8; }
-  .status-badge { font-size: 11px; padding: 2px 8px; border-radius: 3px; }
-  .status-badge[data-status="success"] { background: #1a2a1a; color: #6a6; }
-  .status-badge[data-status="partial"] { background: #2a2a1a; color: #aa8; }
-  .status-badge[data-status="error"] { background: #2a1a1a; color: #a66; }
-  .distill-limit-selector { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; color: #666; font-size: 13px; }
-  .distill-limit-selector button { padding: 4px 10px; background: #1a1a1a; border: 1px solid #333; border-radius: 12px; font-size: 12px; color: #999; cursor: pointer; }
-  .distill-limit-selector button:hover, .distill-limit-selector button.active { background: #333; color: #fff; border-color: #555; }
-
-  .source-badge { font-size: 11px; padding: 2px 8px; border-radius: 3px; background: #1a1a2a; color: #88a; margin-left: 4px; }
-  .stream-thought-link { font-size: 12px; color: #4a9; cursor: pointer; margin-left: 4px; }
-  .stream-thought-link:hover { text-decoration: underline; }
-
-  .review-nav { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; }
-  .review-nav button { background: #1a1a1a; border: 1px solid #333; color: #999; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-  .review-nav button:hover { color: #fff; border-color: #555; }
-  .review-nav .review-label { color: #999; font-size: 14px; }
-  .review-actions { display: flex; gap: 4px; margin-top: 8px; }
-  .review-actions button { padding: 4px 10px; border-radius: 4px; border: 1px solid #333; background: #1a1a1a; color: #999; cursor: pointer; font-size: 12px; }
-  .review-actions button:hover { color: #fff; border-color: #555; }
-  .review-actions button.review-true { border-color: #1a3a1a; color: #6a6; }
-  .review-actions button.review-true:hover { background: #1a3a1a; }
-  .review-actions button.review-letgo { border-color: #2a1a1a; color: #a66; }
-  .review-actions button.review-letgo:hover { background: #2a1a1a; }
-
-  .timeline-item { display: flex; gap: 16px; margin-bottom: 0; }
-  .timeline-line { width: 40px; display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
-  .timeline-dot { width: 10px; height: 10px; border-radius: 50%; background: #4a9; margin-top: 20px; }
-  .timeline-stem { flex: 1; width: 2px; background: #333; }
-  .timeline-card { flex: 1; padding-bottom: 12px; }
-  .timeline-date-header { color: #666; font-size: 13px; font-weight: 600; padding: 16px 0 8px 56px; border-top: 1px solid #222; margin-top: 8px; }
-  .timeline-date-header:first-child { border-top: none; margin-top: 0; }
-
-  .batch-toolbar { position: fixed; bottom: 0; left: 0; right: 0; background: #1a1a1a; border-top: 1px solid #444; padding: 12px 20px; display: flex; align-items: center; gap: 12px; z-index: 20; transform: translateY(100%); transition: transform 0.2s; }
-  .batch-toolbar.visible { transform: translateY(0); }
-  .batch-toolbar .batch-count { color: #4a9; font-size: 14px; font-weight: 600; min-width: 100px; }
-  .batch-toolbar button { padding: 6px 14px; border-radius: 4px; border: 1px solid #444; cursor: pointer; font-size: 13px; background: #1a1a1a; color: #999; }
-  .batch-toolbar button:hover { color: #fff; border-color: #555; }
-  .batch-toolbar button.batch-danger { border-color: #2a1a1a; color: #a66; }
-  .batch-toolbar button.batch-danger:hover { background: #2a1a1a; color: #c44; }
-  .batch-toolbar .batch-spacer { flex: 1; }
-
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; display: flex; align-items: center; justify-content: center; animation: modalFadeIn 0.15s; }
-  @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
-  .modal { background: #1a1a1a; border: 1px solid #444; border-radius: 10px; padding: 24px; max-width: 420px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
-  .modal-title { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 12px; }
-  .modal-body { font-size: 14px; color: #aaa; line-height: 1.5; margin-bottom: 20px; }
-  .modal-input { width: 100%; padding: 8px 12px; background: #111; border: 1px solid #444; border-radius: 6px; color: #fff; font-size: 14px; font-family: inherit; outline: none; margin-top: 8px; }
-  .modal-input:focus { border-color: #666; }
-  .modal-buttons { display: flex; gap: 8px; justify-content: flex-end; }
-  .modal-btn { padding: 8px 18px; border-radius: 6px; border: 1px solid #444; cursor: pointer; font-size: 13px; font-family: inherit; }
-  .modal-btn-cancel { background: #1a1a1a; color: #999; }
-  .modal-btn-cancel:hover { background: #2a2a2a; color: #fff; }
-  .modal-btn-confirm { background: #1a3a1a; color: #6a6; border-color: #2a4a2a; }
-  .modal-btn-confirm:hover { background: #2a4a2a; }
-  .modal-btn-danger { background: #2a1a1a; color: #a66; border-color: #3a1a1a; }
-  .modal-btn-danger:hover { background: #3a1a1a; color: #c44; }
-  .modal-btn-ok { background: #1a1a2a; color: #88a; border-color: #2a2a3a; }
-  .modal-btn-ok:hover { background: #2a2a3a; }
-</style>
-</head>
-<body>
-<div class="container">
-  <div class="header">
-    <h1>Open Brain <span id="totalCount"></span></h1>
-    <div class="header-actions"><button id="batchToggle" data-action="toggle-batch">Select</button></div>
-  </div>
-
-  <div class="tabs">
-    <div class="tab active" data-tab="search" onclick="switchTab('search')">Search</div>
-    <div class="tab" data-tab="timeline" onclick="switchTab('timeline')">Timeline</div>
-    <div class="tab" data-tab="recent" onclick="switchTab('recent')">Recent</div>
-    <div class="tab" data-tab="review" onclick="switchTab('review')">Review</div>
-    <div class="tab" data-tab="compost" onclick="switchTab('compost')">Compost</div>
-    <div class="tab" data-tab="duplicates" onclick="switchTab('duplicates')">Duplicates</div>
-    <div class="tab" data-tab="stream" onclick="switchTab('stream')">Stream</div>
-    <div class="tab" data-tab="import" onclick="switchTab('import')">Import</div>
-    <div class="tab" data-tab="activity" onclick="switchTab('activity')">Activity</div>
-    <div class="tab" data-tab="stats" onclick="switchTab('stats')">Status</div>
-    <div class="tab" data-tab="distill-log" onclick="switchTab('distill-log')">Distill Log</div>
-  </div>
-
-  <div id="search-view"><div class="search-box"><input type="text" id="searchInput" placeholder="Semantic search..." autofocus></div><div id="searchResults"></div></div>
-  <div id="timeline-view" style="display:none"><div class="search-box"><input type="text" id="timelineInput" placeholder="Search topic to see evolution over time..."></div><div id="timelineResults"></div></div>
-  <div id="recent-view" style="display:none"><div class="filters" id="sourceFilters"></div><div id="recentResults"></div></div>
-  <div id="review-view" style="display:none"><div class="review-nav"><button data-action="review-earlier">\\u2190 Earlier</button><span class="review-label" id="reviewLabel">7 days ago</span><button data-action="review-later">Later \\u2192</button></div><div id="reviewResults"></div></div>
-  <div id="compost-view" style="display:none"><div id="compostResults"></div></div>
-  <div id="duplicates-view" style="display:none"><div id="duplicatesResults"></div></div>
-  <div id="stream-view" style="display:none">
-    <div class="power-nap-bar">
-      <div id="distillationStatus" class="distillation-status"></div>
-      <button class="power-nap-btn" id="powerNapBtn" onclick="triggerPowerNap()">Power Nap</button>
-    </div>
-    <div class="stream-controls">
-      <div class="search-box"><input type="text" id="streamSearchInput" placeholder="Search stream content..."></div>
-      <div class="stream-filters">
-        <select id="streamSessionFilter" onchange="loadStream()"><option value="">All sessions</option></select>
-        <select id="streamStatusFilter" onchange="loadStream()"><option value="">All status</option><option value="pending">Pending</option><option value="distilled">Distilled</option><option value="pinned">Pinned</option></select>
-      </div>
-    </div>
-    <div id="streamStats" class="stream-stats-bar"></div>
-    <div id="streamResults"></div>
-  </div>
-  <div id="toast" class="toast"></div>
-  <div id="import-view" style="display:none">
-    <div class="import-section">
-      <h3>File Upload</h3>
-      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
-        Drag & drop .md or .txt files here, or click to browse
-        <input type="file" id="fileInput" multiple accept=".md,.txt">
-      </div>
-      <div class="file-list" id="uploadFileList"></div>
-      <div class="import-controls" id="uploadControls" style="display:none">
-        <label style="color:#666;font-size:12px">Source:</label>
-        <select id="uploadSource"><option>upload</option><option>obsidian</option><option>telegram</option><option>cli</option></select>
-        <button id="uploadBtn" onclick="startFileUpload()">Import files</button>
-      </div>
-    </div>
-    <div class="import-section">
-      <h3>Obsidian Vault</h3>
-      <div class="import-controls">
-        <input type="text" id="vaultPath" placeholder="/path/to/obsidian/vault" style="flex:1">
-        <button onclick="scanVault()">Scan</button>
-      </div>
-      <div id="vaultResults"></div>
-    </div>
-    <div id="importProgress"></div>
-  </div>
-  <div id="activity-view" style="display:none"><div id="activityStats"></div><div class="activity-filters" id="activityFilters"></div><div id="activityResults"></div></div>
-  <div id="stats-view" style="display:none"><div id="statsContent"></div></div>
-  <div id="distill-log-view" style="display:none"><div class="distill-limit-selector">Show: <button class="active" onclick="distillLogLimit=10;loadDistillLog()">10</button><button onclick="distillLogLimit=20;loadDistillLog()">20</button><button onclick="distillLogLimit=50;loadDistillLog()">50</button></div><div id="distillLogResults"></div></div>
-
-  <div id="status"></div>
-</div>
-
-<div id="modalRoot"></div>
-
-<div class="batch-toolbar" id="batchToolbar">
-  <span class="batch-count" id="batchCount">0 selected</span>
-  <button data-action="batch-select-all">All</button>
-  <button data-action="batch-clear">Clear</button>
-  <span class="batch-spacer"></span>
-  <button data-action="batch-tag">+ Tag</button>
-  <button data-action="batch-status">Status</button>
-  <button class="batch-danger" data-action="batch-compost">Compost</button>
-  <button class="batch-danger" data-action="batch-delete">Delete</button>
-</div>
-
-<script>
 var API = '/api';
 var debounceTimer, timelineTimer;
 var batchMode = false;
 var selectedIds = new Set();
 var reviewDaysAgo = 7;
-var STATUSES = {hypothesis:'? Hypothesis',conviction:'! Conviction',fact:'\\u2713 Fact',outdated:'\\u2717 Outdated',question:'? Question'};
+var STATUSES = {hypothesis:'? Hypothesis',conviction:'! Conviction',fact:'\u2713 Fact',outdated:'\u2717 Outdated',question:'? Question'};
 var TABS = ['search','timeline','recent','review','compost','duplicates','stream','import','activity','stats','distill-log'];
 
 function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
@@ -443,22 +88,22 @@ function renderThought(t, opts) {
 
   var badges = '';
   if (opts.similarity) badges += '<span class="thought-similarity">' + (opts.similarity * 100).toFixed(1) + '%</span>';
-  if (t.weight && t.weight !== 1) badges += '<span class="weight-badge">\\u00d7' + t.weight + '</span>';
+  if (t.weight && t.weight !== 1) badges += '<span class="weight-badge">\u00d7' + t.weight + '</span>';
   if (t.epistemic_status) badges += '<span class="epistemic-badge" data-action="toggle-status" data-status="' + escAttr(t.epistemic_status) + '">' + esc(STATUSES[t.epistemic_status] || t.epistemic_status) + '</span>';
-  else badges += '<span class="epistemic-badge" data-action="toggle-status" title="Set status">\\u00b7</span>';
+  else badges += '<span class="epistemic-badge" data-action="toggle-status" title="Set status">\u00b7</span>';
   if (opts.days_remaining !== undefined) badges += '<span class="days-badge">' + opts.days_remaining + 'd left</span>';
 
   var actions = '';
   if (opts.composted) {
-    actions = '<button data-action="restore" title="Restore">\\u21a9</button><button data-action="delete" title="Delete permanently">\\ud83d\\uddd1</button>';
+    actions = '<button data-action="restore" title="Restore">\u21a9</button><button data-action="delete" title="Delete permanently">\ud83d\uddd1</button>';
   } else if (opts.review) {
-    actions = '<button class="review-true" data-action="amplify" title="Still true">\\u2713 True</button>' +
-      '<button data-action="edit" title="Evolved">\\u270e Evolved</button>' +
-      '<button class="review-letgo" data-action="compost" title="Let go">\\ud83c\\udf31 Let go</button>';
+    actions = '<button class="review-true" data-action="amplify" title="Still true">\u2713 True</button>' +
+      '<button data-action="edit" title="Evolved">\u270e Evolved</button>' +
+      '<button class="review-letgo" data-action="compost" title="Let go">\ud83c\udf31 Let go</button>';
   } else {
-    actions = '<button data-action="fade" title="Fade">\\u25bc</button><button data-action="amplify" title="Amplify">\\u25b2</button>' +
-      '<button data-action="edit" title="Edit">\\u270e</button><button data-action="compost" title="Compost">\\ud83c\\udf31</button>' +
-      '<button data-action="delete" title="Delete">\\ud83d\\uddd1</button>';
+    actions = '<button data-action="fade" title="Fade">\u25bc</button><button data-action="amplify" title="Amplify">\u25b2</button>' +
+      '<button data-action="edit" title="Edit">\u270e</button><button data-action="compost" title="Compost">\ud83c\udf31</button>' +
+      '<button data-action="delete" title="Delete">\ud83d\uddd1</button>';
   }
 
   var sourceBadge = '';
@@ -591,7 +236,7 @@ async function loadReview() {
       return;
     }
     document.getElementById('reviewResults').innerHTML =
-      '<p style="color:#666;font-size:13px;margin-bottom:16px">' + data.period.from + ' \\u2014 ' + data.period.to + ' \\u00b7 ' + data.total + ' thoughts</p>' +
+      '<p style="color:#666;font-size:13px;margin-bottom:16px">' + data.period.from + ' \u2014 ' + data.period.to + ' \u00b7 ' + data.total + ' thoughts</p>' +
       data.thoughts.map(function(t) { return renderThought(t, {review: true}); }).join('');
   } catch(e) { document.getElementById('reviewResults').innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>'; }
 }
@@ -628,11 +273,11 @@ async function loadDuplicates() {
         '<div class="dup-body">' +
           '<div class="dup-side"><div class="dup-side-title">' + esc(a.title || 'Untitled') + '</div>' +
             '<div class="dup-side-content">' + esc(a.content) + '</div>' +
-            '<div class="dup-side-meta">' + esc(a.source) + ' \\u00b7 ' + aDate + '</div>' +
+            '<div class="dup-side-meta">' + esc(a.source) + ' \u00b7 ' + aDate + '</div>' +
             '<div class="dup-side-tags">' + aTags + '</div></div>' +
           '<div class="dup-side"><div class="dup-side-title">' + esc(b.title || 'Untitled') + '</div>' +
             '<div class="dup-side-content">' + esc(b.content) + '</div>' +
-            '<div class="dup-side-meta">' + esc(b.source) + ' \\u00b7 ' + bDate + '</div>' +
+            '<div class="dup-side-meta">' + esc(b.source) + ' \u00b7 ' + bDate + '</div>' +
             '<div class="dup-side-tags">' + bTags + '</div></div>' +
         '</div>' +
         '<div class="dup-actions">' +
@@ -730,8 +375,8 @@ async function loadStream() {
             (b.topic ? ' <span class="stream-topic">' + esc(b.topic) + '</span>' : '') +
           '</div>' +
           '<div class="stream-actions">' +
-            '<button onclick="toggleStreamPin(\\'' + b.id + '\\', ' + !b.pinned + ')">' + (b.pinned ? 'Unpin' : 'Pin') + '</button>' +
-            '<button onclick="deleteStreamBlock(\\'' + b.id + '\\')" style="color:#a66">Delete</button>' +
+            '<button onclick="toggleStreamPin(\'' + b.id + '\', ' + !b.pinned + ')">' + (b.pinned ? 'Unpin' : 'Pin') + '</button>' +
+            '<button onclick="deleteStreamBlock(\'' + b.id + '\')" style="color:#a66">Delete</button>' +
           '</div>' +
         '</div>' +
         '<div class="stream-content">' + esc(b.content) + '</div>' +
@@ -739,7 +384,7 @@ async function loadStream() {
           '<span>' + esc(date) + '</span>' +
           (b.source_client ? '<span>via ' + esc(b.source_client) + '</span>' : '') +
           (participants ? '<span>Participants: ' + esc(participants) + '</span>' : '') +
-          (b.distilled ? '<span style="color:#4a9">distilled</span>' + (b.distillation_run_id ? '<span class="stream-thought-link" onclick="event.stopPropagation();showRunThoughts(\\'' + b.distillation_run_id + '\\')">→ thoughts</span>' : '') : '') +
+          (b.distilled ? '<span style="color:#4a9">distilled</span>' + (b.distillation_run_id ? '<span class="stream-thought-link" onclick="event.stopPropagation();showRunThoughts(\'' + b.distillation_run_id + '\')">→ thoughts</span>' : '') : '') +
           (expires && !b.pinned ? '<span>expires ' + esc(expires) + '</span>' : '') +
         '</div>' +
       '</div>';
@@ -780,7 +425,7 @@ function setupDropZone() {
 
 function addFiles(fileList) {
   Array.from(fileList).forEach(function(f) {
-    if (!f.name.match(/\\.(md|txt)$/i)) return;
+    if (!f.name.match(/\.(md|txt)$/i)) return;
     var reader = new FileReader();
     reader.onload = function() {
       pendingFiles.push({ name: f.name, content: reader.result, size: f.size });
@@ -796,7 +441,7 @@ function renderPendingFiles() {
   document.getElementById('uploadControls').style.display = 'flex';
   document.getElementById('uploadBtn').textContent = 'Import ' + pendingFiles.length + ' file' + (pendingFiles.length > 1 ? 's' : '');
   el.innerHTML = pendingFiles.map(function(f, i) {
-    return '<div class="file-item"><span class="file-name">' + esc(f.name) + '</span><span class="file-size">' + formatSize(f.size) + '</span><button onclick="removePendingFile(' + i + ')">\\u2715</button></div>';
+    return '<div class="file-item"><span class="file-name">' + esc(f.name) + '</span><span class="file-size">' + formatSize(f.size) + '</span><button onclick="removePendingFile(' + i + ')">\u2715</button></div>';
   }).join('');
 }
 
@@ -884,7 +529,7 @@ async function updateImportProgress() {
 
 // --- Activity ---
 var activityToolFilter = '';
-var TOOL_ICONS = {brain_save:'\\ud83d\\udcbe',brain_search:'\\ud83d\\udd0d',brain_recent:'\\ud83d\\udd53',brain_related:'\\ud83d\\udd17',brain_stats:'\\ud83d\\udcca',brain_tags:'\\ud83c\\udff7',brain_tag_rename:'\\u270e',brain_delete:'\\ud83d\\uddd1'};
+var TOOL_ICONS = {brain_save:'\ud83d\udcbe',brain_search:'\ud83d\udd0d',brain_recent:'\ud83d\udd53',brain_related:'\ud83d\udd17',brain_stats:'\ud83d\udcca',brain_tags:'\ud83c\udff7',brain_tag_rename:'\u270e',brain_delete:'\ud83d\uddd1'};
 
 async function loadActivity() {
   document.getElementById('activityResults').innerHTML = '<div class="loading">Loading activity...</div>';
@@ -900,8 +545,8 @@ async function loadActivity() {
 
     // Filter chips
     var tools = Object.keys(stats.by_tool || {});
-    var fh = '<button class="' + (!activityToolFilter ? 'active' : '') + '" onclick="activityToolFilter=\\'\\';loadActivity()">All</button>';
-    tools.forEach(function(t) { fh += '<button class="' + (activityToolFilter === t ? 'active' : '') + '" onclick="activityToolFilter=\\'' + escAttr(t) + '\\';loadActivity()">' + esc(t.replace('brain_','')) + ' (' + stats.by_tool[t] + ')</button>'; });
+    var fh = '<button class="' + (!activityToolFilter ? 'active' : '') + '" onclick="activityToolFilter=\'\';loadActivity()">All</button>';
+    tools.forEach(function(t) { fh += '<button class="' + (activityToolFilter === t ? 'active' : '') + '" onclick="activityToolFilter=\'' + escAttr(t) + '\';loadActivity()">' + esc(t.replace('brain_','')) + ' (' + stats.by_tool[t] + ')</button>'; });
     document.getElementById('activityFilters').innerHTML = fh;
 
     var url = API + '/activity?limit=50';
@@ -913,7 +558,7 @@ async function loadActivity() {
       return;
     }
     document.getElementById('activityResults').innerHTML = data.entries.map(function(e) {
-      var icon = TOOL_ICONS[e.tool_name] || '\\u2699';
+      var icon = TOOL_ICONS[e.tool_name] || '\u2699';
       var time = e.created_at ? new Date(e.created_at).toLocaleTimeString() : '';
       var date = e.created_at ? new Date(e.created_at).toLocaleDateString() : '';
       return '<div class="activity-entry' + (e.status === 'error' ? ' error' : '') + '">' +
@@ -1044,15 +689,15 @@ async function loadDistillLog() {
     document.getElementById('distillLogResults').innerHTML = data.runs.map(function(run, idx) {
       var date = run.created_at ? new Date(run.created_at).toLocaleString() : '';
       var thoughtLinks = (run.thought_ids || []).map(function(tid) {
-        return '<a href="#" onclick="switchTab(\\'recent\\');return false;" title="' + escAttr(tid) + '">' + tid.slice(0, 8) + '…</a>';
+        return '<a href="#" onclick="switchTab(\'recent\');return false;" title="' + escAttr(tid) + '">' + tid.slice(0, 8) + '…</a>';
       }).join('');
       var thoughtTitleLink = run.thoughts_created > 0
-        ? '<a href="#" class="stream-thought-link" onclick="event.stopPropagation();showRunThoughts(\\'' + run.id + '\\');return false;">show titles</a>'
+        ? '<a href="#" class="stream-thought-link" onclick="event.stopPropagation();showRunThoughts(\'' + run.id + '\');return false;">show titles</a>'
         : '';
       var skipReasons = '';
       if (run.blocks_skipped > 0) { try { var sr = JSON.parse(run.skip_reasons || '{}'); skipReasons = Object.entries(sr).map(function(e) { return e[0] + ': ' + e[1]; }).join(', '); } catch(e) {} }
 
-      return '<div class="distill-run" onclick="this.querySelector(\\'.distill-run-detail\\').classList.toggle(\\'open\\')">' +
+      return '<div class="distill-run" onclick="this.querySelector(\'.distill-run-detail\').classList.toggle(\'open\')">' +
         '<div class="distill-run-header">' +
           '<div style="display:flex;gap:8px;align-items:center">' +
             '<span style="color:#fff;font-size:14px">' + esc(date) + '</span>' +
@@ -1090,7 +735,7 @@ async function showRunThoughts(runId) {
     var lines = summaries.map(function(s) {
       return (s.title || s.id.slice(0, 12));
     });
-    await modalAlert('Thoughts created: ' + data.thought_ids.length + '\\n\\n' + lines.join('\\n'), 'Distillation Run');
+    await modalAlert('Thoughts created: ' + data.thought_ids.length + '\n\n' + lines.join('\n'), 'Distillation Run');
   } catch(e) { showToast('Error loading run details'); }
 }
 
@@ -1126,7 +771,7 @@ async function adjustWeight(id, direction) {
     if (card) {
       var wb = card.querySelector('.weight-badge');
       if (data.weight === 1) { if (wb) wb.remove(); }
-      else { if (!wb) { wb = document.createElement('span'); wb.className = 'weight-badge'; card.querySelector('.thought-badges').insertBefore(wb, card.querySelector('.epistemic-badge')); } wb.textContent = '\\u00d7' + data.weight; }
+      else { if (!wb) { wb = document.createElement('span'); wb.className = 'weight-badge'; card.querySelector('.thought-badges').insertBefore(wb, card.querySelector('.epistemic-badge')); } wb.textContent = '\u00d7' + data.weight; }
       card.style.opacity = Math.min(Math.max(0.4 + data.weight * 0.06, 0.5), 1.0);
     }
   } catch(err) { await modalAlert(err.message, 'Error'); }
@@ -1156,7 +801,7 @@ async function restoreThought(id) {
 function showStatusMenu(badge, id) {
   var existing = document.querySelector('.status-menu'); if (existing) { existing.remove(); return; }
   var menu = document.createElement('div'); menu.className = 'status-menu';
-  [{key:'hypothesis',label:'? Hypothesis'},{key:'conviction',label:'! Conviction'},{key:'fact',label:'\\u2713 Fact'},{key:'outdated',label:'\\u2717 Outdated'},{key:'question',label:'? Question'},{key:'',label:'\\u2014 Clear'}].forEach(function(item) {
+  [{key:'hypothesis',label:'? Hypothesis'},{key:'conviction',label:'! Conviction'},{key:'fact',label:'\u2713 Fact'},{key:'outdated',label:'\u2717 Outdated'},{key:'question',label:'? Question'},{key:'',label:'\u2014 Clear'}].forEach(function(item) {
     var div = document.createElement('div'); div.className = 'status-menu-item'; div.textContent = item.label; div.dataset.action = 'set-status'; div.dataset.status = item.key; menu.appendChild(div);
   });
   badge.style.position = 'relative'; badge.appendChild(menu);
@@ -1168,7 +813,7 @@ async function setStatus(id, status) {
     var r = await fetch(API + '/thoughts/' + encodeURIComponent(id) + '/status', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: status || null }) });
     var data = await r.json(); if (!r.ok) throw new Error(data.error || 'Failed');
     var card = document.querySelector('.thought[data-id="' + CSS.escape(id) + '"]');
-    if (card) { var badge = card.querySelector('.epistemic-badge'); if (badge) { if (data.epistemic_status) { badge.dataset.status = data.epistemic_status; badge.textContent = STATUSES[data.epistemic_status] || data.epistemic_status; } else { delete badge.dataset.status; badge.textContent = '\\u00b7'; } } }
+    if (card) { var badge = card.querySelector('.epistemic-badge'); if (badge) { if (data.epistemic_status) { badge.dataset.status = data.epistemic_status; badge.textContent = STATUSES[data.epistemic_status] || data.epistemic_status; } else { delete badge.dataset.status; badge.textContent = '\u00b7'; } } }
   } catch(err) { await modalAlert(err.message, 'Error'); }
 }
 
@@ -1363,6 +1008,3 @@ document.getElementById('streamSearchInput').addEventListener('input', function(
 document.getElementById('streamSearchInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { clearTimeout(streamSearchTimer); loadStream(); } });
 fetch(API + '/brain/status').then(function(r) { return r.json(); }).then(function(s) { document.getElementById('totalCount').textContent = s.thoughts.total + ' thoughts'; }).catch(function() {});
 setupDropZone();
-</script>
-</body>
-</html>`
