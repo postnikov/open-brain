@@ -91,7 +91,7 @@ async function main(): Promise<void> {
         const sid = transport.sessionId
         if (sid) {
           sessions.delete(sid)
-          logger.info({ sessionId: sid }, 'Session closed')
+          logger.debug({ sessionId: sid }, 'Session closed')
         }
       }
 
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
       const sid = transport.sessionId
       if (sid) {
         sessions.set(sid, { transport, server })
-        logger.info({ sessionId: sid }, 'New session created')
+        logger.debug({ sessionId: sid }, 'New session created')
       }
       return
     }
