@@ -29,7 +29,9 @@ export async function loadStream() {
     var curVal = sel.value;
     var opts = '<option value="">All sessions</option>';
     (sessionsData.sessions || []).forEach(function(s) {
-      var label = (s.topic || s.session_id.slice(0, 16)) + ' (' + s.block_count + ')';
+      var name = s.topic || s.session_id.slice(0, 16);
+      if (name.length > 60) name = name.slice(0, 60) + '…';
+      var label = name + ' (' + s.block_count + ')';
       opts += '<option value="' + escAttr(s.session_id) + '"' + (s.session_id === curVal ? ' selected' : '') + '>' + esc(label) + '</option>';
     });
     sel.innerHTML = opts;
