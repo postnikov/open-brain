@@ -10,11 +10,25 @@ const STATIC_DIR = join(dirname(fileURLToPath(import.meta.url)), 'static')
 const FILES: Record<string, { readonly file: string; readonly contentType: string }> = {
   '/': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
   '/static/styles.css': { file: 'styles.css', contentType: 'text/css; charset=utf-8' },
-  '/static/app.js': { file: 'app.js', contentType: 'application/javascript; charset=utf-8' },
+}
+
+// ES modules under /static/js/ — strict name pattern keeps traversal impossible
+const JS_MODULE_RE = /^\/static\/js\/([a-z]+\.js)$/
+
+function resolveFile(pathname: string): { readonly file: string; readonly contentType: string } | null {
+  const known = FILES[pathname]
+  if (known) {
+    return known
+  }
+  const jsMatch = JS_MODULE_RE.exec(pathname)
+  if (jsMatch) {
+    return { file: join('js', jsMatch[1]!), contentType: 'application/javascript; charset=utf-8' }
+  }
+  return null
 }
 
 export async function serveStatic(pathname: string, res: ServerResponse): Promise<boolean> {
-  const entry = FILES[pathname]
+  const entry = resolveFile(pathname)
   if (!entry) {
     return false
   }

@@ -75,7 +75,7 @@
   </div>
   <div id="activity-view" style="display:none"><div id="activityStats"></div><div class="activity-filters" id="activityFilters"></div><div id="activityResults"></div></div>
   <div id="stats-view" style="display:none"><div id="statsContent"></div></div>
-  <div id="distill-log-view" style="display:none"><div class="distill-limit-selector">Show: <button class="active" onclick="distillLogLimit=10;loadDistillLog()">10</button><button onclick="distillLogLimit=20;loadDistillLog()">20</button><button onclick="distillLogLimit=50;loadDistillLog()">50</button></div><div id="distillLogResults"></div></div>
+  <div id="distill-log-view" style="display:none"><div class="distill-limit-selector">Show: <button class="active" onclick="setDistillLogLimit(10)">10</button><button onclick="setDistillLogLimit(20)">20</button><button onclick="setDistillLogLimit(50)">50</button></div><div id="distillLogResults"></div></div>
 
   <div id="status"></div>
 </div>
@@ -93,6 +93,6 @@
   <button class="batch-danger" data-action="batch-delete">Delete</button>
 </div>
 
-<script src="/static/app.js"></script>
+<script type="module" src="/static/js/main.js"></script>
 </body>
 </html>
