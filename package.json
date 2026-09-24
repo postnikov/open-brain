@@ -22,7 +22,8 @@
     "test:api": "bash scripts/test-api.sh",
     "backup:check": "node scripts/backup/cli.mjs check",
     "backup:restore": "node scripts/backup/cli.mjs restore",
-    "test:backup": "vitest run scripts/backup/backup.test.mjs"
+    "test:backup": "vitest run scripts/backup/backup.test.mjs",
+    "server:hardened": "node --env-file=.env --import tsx/esm src/server-hardened.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",

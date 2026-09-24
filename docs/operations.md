@@ -76,3 +76,80 @@ done
 Keep backup files and proof. Restore the registry from its task snapshot (or remove
 only these three entries if it has since changed). Do not restore the old automatic
 deleting backup script into scheduled use.
+
+## HTTP local auth (prepared; stage 2 activation)
+
+The production entry point remains `src/server.ts`. The secured entry point is
+`src/server-hardened.ts` / `npm run server:hardened`. No live plist or MCP config is
+rewritten by stage 1. Both clients currently lack auth, so enabling the secured
+entry point before their migration would break them. Shared `json()` no longer
+adds wildcard CORS; the running process retains its previously loaded code.
+
+Before starting the secured entry point, set `OPEN_BRAIN_HTTP_TOKEN_FILE` to an
+absolute path containing 32 random bytes encoded as 64 lowercase hex characters.
+Create it with owner-only mode 0600, backed up before rotation; do not print it,
+put it in argv, git, browser storage or logs. Example creation in an approved
+activation window (fails if the file already exists):
+
+```python
+import os, secrets
+path = os.path.expanduser('~/.open-brain/http-token')
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, 'w') as f:
+    f.write(secrets.token_hex(32) + '\n')
+```
+
+Bind is strictly `127.0.0.1`; `PORT` defaults to 3100. Host authorities are exactly
+`127.0.0.1:<port>` and `localhost:<port>`; Origins are exactly their HTTP origins.
+Forwarding headers are ignored. Bearer is required on every MCP method, all API
+routes and health. MCP session IDs never authenticate. OPTIONS only grants exact
+allowed Origins. Directory scan/start is blocked before body parsing and through
+the wrapped import service. Upload retains its 50-file / 100 KB-per-content /
+6 MB-body limits. Standalone CLI vault indexing is not exposed by this HTTP entry.
+
+The browser receives a data-free shell and asks for the token. The token remains
+in page memory; same-origin fetch adds it, redirects are rejected, and Lock/reload
+clears it. A 401 prompts login again without automatically replaying mutations.
+Existing inline UI handlers require `unsafe-inline` CSP; this is not a full XSS
+audit. Native client and full UI acceptance remain release gates.
+
+Client changes for Max's approved stage 2 (edit only the existing open-brain entry,
+keep other settings, and back up both files first):
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.open-brain]
+url = "http://127.0.0.1:3100/mcp"
+bearer_token_env_var = "OPEN_BRAIN_HTTP_TOKEN"
+```
+
+```json
+{
+  "type": "http",
+  "url": "http://127.0.0.1:3100/mcp",
+  "headers": { "Authorization": "Bearer ${OPEN_BRAIN_HTTP_TOKEN}" }
+}
+```
+
+The JSON is the `mcpServers.open-brain` value in `~/.claude.json`. Ensure the actual
+Codex Desktop and Claude Code processes inherit `OPEN_BRAIN_HTTP_TOKEN` securely;
+putting it only in the server's `.env` does not do that. Use the existing keychain /
+GUI env mechanism after approval, or launch clients from an environment that reads
+the token file without echoing it. Validate header expansion in the installed
+Claude version before switching the server. Documentation: [Codex MCP](https://developers.openai.com/codex/mcp/),
+[Claude Code MCP headers and env expansion](https://code.claude.com/docs/en/mcp).
+
+After clients are ready, back up the server plist, change only the entry path to
+`src/server-hardened.ts` and add `OPEN_BRAIN_HTTP_TOKEN_FILE` (path, not token).
+Restart during the approved window. Confirm `lsof` shows only 127.0.0.1; in **both
+actual clients**, reconnect, list tools and call `brain_recent`/`brain_stats`.
+Test UI login/read/upload/lock and wrong token/Origin/Host. SDK smoke tests are not
+evidence that the two native clients have been migrated. No external-node LAN
+probe has been performed. Docker needs a separate ingress design; this entry is
+for local launchd only.
+
+Rotation: securely replace token file, refresh both clients' environment, restart
+secured server, reconnect. Old token and old sessions must fail. If activation
+fails, stop HTTP and use the existing stdio MCP after verifying it; **do not**
+restore wildcard unauthenticated HTTP as a security rollback. Stage 1 itself has
+not activated auth, so it requires no application rollback.

@@ -62,3 +62,9 @@ npm test
 - `scripts/backup/{lib,cli}.mjs`: fail-fast full snapshot dump, atomic checksum manifest, independent age watchdog, and isolated Unix-socket cluster restore. `ops/install-backup-launchd.py` installs the three jobs; `docs/operations.md` is the runbook. Config: `~/.open-brain/backup.json` (paths/thresholds only).
 - Production backup is read-only. Restore never accepts a production DSN and retains its stopped scratch cluster. No automatic archive deletion. The same-disk backup does not cover disk loss.
 - `npm run test:backup` runs pure gates; set `OPEN_BRAIN_TEST_PG_BIN` for real synthetic PostgreSQL integration. No production connection in tests.
+
+## Staged HTTP hardening (2026-09-24)
+
+- `src/server-hardened.ts`, `src/security/`: separate fail-closed loopback/auth entry and upload-only service wrapper. `src/server.ts` remains the live legacy entry until native clients receive headers. Never switch the plist just because SDK tests pass.
+- `src/web/static/js/authmain.js` is used only by the secured shell. Token lives in page memory; existing UI code loads after login. `docs/operations.md` has activation/rotation/client steps.
+- `src/security/http.test.ts`: real local HTTP negative matrix and MCP SDK initialize/list/read/reconnect with fake services; no real DB/AI in these tests.

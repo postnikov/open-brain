@@ -27,14 +27,17 @@ function resolveFile(pathname: string): { readonly file: string; readonly conten
   return null
 }
 
-export async function serveStatic(pathname: string, res: ServerResponse): Promise<boolean> {
+export async function serveStatic(pathname: string, res: ServerResponse, authenticatedShell = false): Promise<boolean> {
   const entry = resolveFile(pathname)
   if (!entry) {
     return false
   }
 
   try {
-    const body = await readFile(join(STATIC_DIR, entry.file))
+    let body = await readFile(join(STATIC_DIR, entry.file))
+    if (authenticatedShell && pathname === '/') {
+      body = Buffer.from(body.toString('utf8').replace('/static/js/main.js', '/static/js/authmain.js'))
+    }
     res.writeHead(200, { 'Content-Type': entry.contentType, 'Cache-Control': 'no-cache' })
     res.end(body)
   } catch (error) {
