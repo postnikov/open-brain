@@ -19,7 +19,10 @@
     "backup": "bash src/scripts/backup.sh",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:api": "bash scripts/test-api.sh"
+    "test:api": "bash scripts/test-api.sh",
+    "backup:check": "node scripts/backup/cli.mjs check",
+    "backup:restore": "node scripts/backup/cli.mjs restore",
+    "test:backup": "vitest run scripts/backup/backup.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
