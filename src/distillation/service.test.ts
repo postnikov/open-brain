@@ -209,3 +209,18 @@ describe('createDistillationService', () => {
     expect(service.isRunning()).toBe(false)
   })
 })
+
+// Opt-in release gate: deliberately RED against the unchanged legacy production engine.
+// Never convert to it.fails: this command must block rollout until integration is complete.
+it.skipIf(process.env.OPEN_BRAIN_DISTILLATION_RELEASE_GATE !== '1')('release gate: mixed failure retains input and does not report success', async () => {
+  completionsCreate.mockClear()
+  completionsCreate.mockResolvedValueOnce(llmResponse([
+    { content: 'First retained thought', content_type: 'insight' },
+    { content: 'Second failed thought', content_type: 'decision' },
+  ]))
+  const { service, capture, markDistilled } = buildService([makeBlock()])
+  capture.mockResolvedValueOnce({ thought: SAVED_THOUGHT }).mockRejectedValueOnce(new Error('metadata enum request/recommendation'))
+  const result = await service.run('manual')
+  expect.soft(result.status).toBe('partial')
+  expect(markDistilled).not.toHaveBeenCalled()
+})

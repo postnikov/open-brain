@@ -153,3 +153,49 @@ secured server, reconnect. Old token and old sessions must fail. If activation
 fails, stop HTTP and use the existing stdio MCP after verifying it; **do not**
 restore wildcard unauthenticated HTTP as a security rollback. Stage 1 itself has
 not activated auth, so it requires no application rollback.
+
+## Distillation replay (stage 1 substrate; not activated)
+
+`src/distillation/{retry-store,replay}.ts` and `ops/sql/distillation-retry.sql`
+implement the bounded persistence/idempotency part of the plan. They are **not
+called by production bootstrap or the secured HTTP entry point yet**. No production
+migration is applied. The original extraction prompt, models, metadata enums,
+weights, capture tagging and scheduler policy are unchanged.
+
+The substrate reserves source snapshots, persists validated extraction before
+capture, gives each item a stable UUID, and atomically inserts a thought plus its
+item outcome. A unique partial index on `thoughts.distillation_item_id` prevents
+repeated effects. The outcome is retained if a thought is deliberately deleted.
+Lease owner/generation fences stale writers; all SQL transactions are short and
+external AI preparation is outside them. Final input marking, success log and job
+completion are one transaction. A changed/disappeared input blocks completion.
+`pipeline.prepare()` reuses the existing embedding/metadata mapping without a DB
+write; the ordinary capture path still writes exactly as before.
+
+`OPEN_BRAIN_TEST_PG_BIN=/absolute/postgresql/bin npm run test:p0` requires a real
+isolated PostgreSQL cluster and runs all green implementation gates. It never reads
+production configuration. The suite covers mixed/all failures, no-thoughts and
+short inputs, invalid schema/quota, restart/reuse, commit acknowledgement loss,
+independent-connection competition, expired-owner fencing, final-log rollback,
+changed inputs, and backup/restore/resume of unfinished work. Crash boundaries are
+simulated at durable API/transaction boundaries, not exhaustive OS kill testing.
+
+`npm run test:distillation-release` is a **separate blocking gate on the currently
+wired legacy service**. It is intentionally red until stage 2 integrates the new
+persistence. It asserts mixed failure must not return success or mark the input.
+Do not mark it expected-failure or remove it to pass a release. The default suite
+skips this single release probe, not the implemented replay tests.
+
+Stage 2 still needs integration into all HTTP/cron/CLI paths, immutable stream
+upserts, cleanup/explicit-delete coordination, persisted retry scheduling and
+backoff/blocked UI, complete AI usage accounting, maintenance rollback, native
+client acceptance and the approved production migration window. Until then the
+legacy partial-capture loss and TTL risks remain live. The substrate alone does
+not establish end-to-end losslessness and must not be enabled piecemeal.
+
+Migration rehearsal must preserve all existing table counts on a restored copy.
+Never run app startup/cleanup or historic replay on that copy as a test. The
+migration is additive and its rollback leaves jobs/items/outcomes intact; there
+is no `DROP` or production rewind. After activation, rollback to a maintenance
+reader with all distillation/cleanup triggers off; do not run the old distiller
+against partially completed new jobs.

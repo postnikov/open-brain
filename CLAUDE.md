@@ -68,3 +68,10 @@ npm test
 - `src/server-hardened.ts`, `src/security/`: separate fail-closed loopback/auth entry and upload-only service wrapper. `src/server.ts` remains the live legacy entry until native clients receive headers. Never switch the plist just because SDK tests pass.
 - `src/web/static/js/authmain.js` is used only by the secured shell. Token lives in page memory; existing UI code loads after login. `docs/operations.md` has activation/rotation/client steps.
 - `src/security/http.test.ts`: real local HTTP negative matrix and MCP SDK initialize/list/read/reconnect with fake services; no real DB/AI in these tests.
+
+## Distillation stage 1 boundary (2026-09-24)
+
+- `src/distillation/retry-store.ts`, `replay.ts`, `ops/sql/distillation-retry.sql`: staged durable extraction/item outcomes, atomic idempotent thought effects and fenced leases. **Not wired into production**; production DB is not migrated.
+- `src/pipeline/capture.ts::prepare` exposes the same metadata/embedding preparation without a write. The regular capture semantics remain unchanged.
+- `OPEN_BRAIN_TEST_PG_BIN=<bin> npm run test:p0` is the green implementation gate on real synthetic PostgreSQL. `npm run test:distillation-release` is deliberately red against the legacy service's mixed-failure bug; stage 2 must make it green through actual integration, not test inversion. Do not infer production safety from green substrate tests.
+- Stage 2 includes immutable stream inputs, TTL/deletion coordination, retry scheduling/backoff and all entry-point wiring; see `docs/operations.md`. The twice-observed loss is now an executable release gate.

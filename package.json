@@ -23,7 +23,9 @@
     "backup:check": "node scripts/backup/cli.mjs check",
     "backup:restore": "node scripts/backup/cli.mjs restore",
     "test:backup": "vitest run scripts/backup/backup.test.mjs",
-    "server:hardened": "node --env-file=.env --import tsx/esm src/server-hardened.ts"
+    "server:hardened": "node --env-file=.env --import tsx/esm src/server-hardened.ts",
+    "test:p0": "bash scripts/test-p0.sh",
+    "test:distillation-release": "OPEN_BRAIN_DISTILLATION_RELEASE_GATE=1 vitest run src/distillation/service.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
