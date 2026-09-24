@@ -19,7 +19,7 @@ Personal memory service: TypeScript/Node.js (ESM), PostgreSQL + pgvector, Drizzl
 
 ## Local runtime and data
 
-- launchd: `~/Library/LaunchAgents/com.open-brain.server.plist`, label `com.open-brain.server`; runs `src/server.ts` via local `tsx` from this repository. Default endpoint: `http://localhost:3100`.
+- launchd: `~/Library/LaunchAgents/com.open-brain.server.plist`, label `com.open-brain.server`; runs `src/server-hardened.ts` via local `tsx` from this repository. Endpoint: `http://127.0.0.1:3100`; bearer required, including health.
 - PostgreSQL database defaults to `open_brain` on local port 5432. Inspect effective `DATABASE_URL`/config without printing credentials. On this Mac, `homebrew.mxcl.postgresql@14` owns `/opt/homebrew/var/postgresql@14`; confirm its live plist before assuming that location elsewhere.
 - `.env`: local API credentials (git-ignored). `~/.open-brain/config.json`: runtime settings. `~/.open-brain/server.log`: launchd stdout/stderr. `~/.open-brain/backups/`: backup script's default destination; existence does not establish a working backup schedule.
 - Docker is a separate deployment recipe: `docker-compose.yml`, `Dockerfile`. Do not start it alongside the existing local production service.
@@ -33,8 +33,7 @@ Read-only inspection on the existing service:
 ```sh
 git status --short
 git log -5 --oneline
-curl --fail --silent http://localhost:3100/health
-curl --fail --silent http://localhost:3100/api/brain/status
+claude mcp get open-brain  # real native connection check; never print auth-helper output
 launchctl print gui/$(id -u)/com.open-brain.server
 npx tsc --noEmit
 npm test
@@ -63,11 +62,14 @@ npm test
 - Production backup is read-only. Restore never accepts a production DSN and retains its stopped scratch cluster. No automatic archive deletion. The same-disk backup does not cover disk loss.
 - `npm run test:backup` runs pure gates; set `OPEN_BRAIN_TEST_PG_BIN` for real synthetic PostgreSQL integration. No production connection in tests.
 
-## Staged HTTP hardening (2026-09-24)
+## Local HTTP hardening activated (2026-09-24)
 
-- `src/server-hardened.ts`, `src/security/`: separate fail-closed loopback/auth entry and upload-only service wrapper. `src/server.ts` remains the live legacy entry until native clients receive headers. Never switch the plist just because SDK tests pass.
-- `src/web/static/js/authmain.js` is used only by the secured shell. Token lives in page memory; existing UI code loads after login. `docs/operations.md` has activation/rotation/client steps.
-- `src/security/http.test.ts`: real local HTTP negative matrix and MCP SDK initialize/list/read/reconnect with fake services; no real DB/AI in these tests.
+- The launchd entry is `src/server-hardened.ts`: IPv4 loopback, bearer, exact Host/Origin checks, upload-only HTTP. `src/server.ts` is still the legacy entry; never use it as a security rollback.
+- Token lives in login Keychain only (`vibe/open-brain/OPEN_BRAIN_HTTP_TOKEN`, created via `secret set`). The plist contains only `OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE`; both clients use the dynamic `src/security/headers.ts` helper. No token file or GUI environment injection on this Mac. Locked Keychain fails closed.
+- Native Claude Code and Codex app-server read/search calls were checked after migration. Old sessions must reload/reconnect or restart; fresh clients read the helper automatically. Health without auth intentionally returns 401.
+- `ops/http-rollout.py` makes adjacent private backups and has a one-command rollback to stdio with HTTP disabled. `ops/stdio-maintenance.py` reuses the DB/environment but runs no cron/cleanup. Run `python3 ops/test_http_rollout.py` for synthetic interruption/rollback gates. See `docs/operations.md`.
+- `OPEN_BRAIN_DISABLE_CLEANUP=1` pauses startup/hourly deletion pending P0-3 TTL coordination; it does not activate durable distillation. One expired block was preserved through cutover. Do not re-enable deletion before the durable TTL gate.
+- UI token stays in page memory; `src/security/http.test.ts` checks the HTTP negative matrix and MCP reconnect with fake services. Full live browser CRUD/upload/export is not claimed.
 
 ## Distillation stage 1 boundary (2026-09-24)
 

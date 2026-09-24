@@ -2,6 +2,7 @@ import { constants } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { readKeychainToken } from './keychain.js'
 
 export interface HttpSecurity {
   readonly host: '127.0.0.1'
@@ -11,20 +12,25 @@ export interface HttpSecurity {
   readonly origins: readonly string[]
 }
 
-export async function loadHttpSecurity(env: NodeJS.ProcessEnv = process.env): Promise<HttpSecurity> {
+export async function loadHttpSecurity(env: NodeJS.ProcessEnv = process.env, keychain = readKeychainToken): Promise<HttpSecurity> {
   const rawPort = env.PORT ?? '3100'
   if (!/^\d+$/.test(rawPort) || Number(rawPort) < 1 || Number(rawPort) > 65535) throw new Error('Invalid HTTP port')
   if (env.OPEN_BRAIN_BIND_HOST && env.OPEN_BRAIN_BIND_HOST !== '127.0.0.1') throw new Error('Only IPv4 loopback is supported')
   const path = env.OPEN_BRAIN_HTTP_TOKEN_FILE
-  if (!path?.startsWith('/')) throw new Error('OPEN_BRAIN_HTTP_TOKEN_FILE must be an absolute path')
-  const fd = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  const service = env.OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE
+  if (Boolean(path) === Boolean(service)) throw new Error('Configure exactly one HTTP token source')
   let token: string
-  try {
-    const info = await fd.stat()
-    if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0 || info.size > 128) throw new Error('Auth token must be an owner-only regular file')
-    token = (await fd.readFile('utf8')).trim()
-    if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Auth token must contain 32 random bytes as lowercase hex')
-  } finally { await fd.close() }
+  if (service) token = await keychain(service)
+  else {
+    if (!path?.startsWith('/')) throw new Error('OPEN_BRAIN_HTTP_TOKEN_FILE must be an absolute path')
+    const fd = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+    try {
+      const info = await fd.stat()
+      if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0 || info.size > 128) throw new Error('Auth token must be an owner-only regular file')
+      token = (await fd.readFile('utf8')).trim()
+    } finally { await fd.close() }
+  }
+  if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Auth token must contain 32 random bytes as lowercase hex')
   const port = Number(rawPort)
   const authorities = [`127.0.0.1:${port}`, `localhost:${port}`]
   return { host: '127.0.0.1', port, token, authorities, origins: authorities.map(h => `http://${h}`) }

@@ -27,6 +27,14 @@ function send(port: number, path: string, method = 'GET', headers: Record<string
 }
 
 describe('HTTP security boundary', () => {
+  it('loads Keychain tokens and fails closed on ambiguous, unavailable or invalid credentials', async () => {
+    const get = vi.fn(async () => TOKEN)
+    expect((await loadHttpSecurity({ OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE: 'test-service' }, get)).token).toBe(TOKEN)
+    expect(get).toHaveBeenCalledExactlyOnceWith('test-service')
+    await expect(loadHttpSecurity({ OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE: 'test', OPEN_BRAIN_HTTP_TOKEN_FILE: '/tmp/token' }, get)).rejects.toThrow('exactly one')
+    await expect(loadHttpSecurity({ OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE: 'test' }, async () => 'invalid')).rejects.toThrow('32 random')
+    await expect(loadHttpSecurity({ OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE: 'test' }, async () => { throw new Error('locked') })).rejects.toThrow('locked')
+  })
   it('checks Host/Origin/bearer before every sensitive route and side effect', async () => {
     const sideEffect = vi.fn()
     const server = createServer((req, res) => { const url = guardHttp(req, res, security); if (url) { sideEffect(); res.writeHead(200); res.end('allowed') } })

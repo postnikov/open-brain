@@ -17,9 +17,11 @@ async function main() {
     await services.repository.cleanupCompost(30)
     await runStreamCleanup(services.streamRepository)
   }
-  // Preserve the current scheduling policy; durable distillation rollout is separate.
-  const timer = setInterval(() => { void cleanup().catch(() => console.error('Cleanup failed')) }, 60 * 60 * 1000)
-  if (services.config.stream.cleanup_on_startup) await cleanup()
+  // Deployment/maintenance may pause deletion until durable TTL coordination ships.
+  // This does not change distillation policy or replay historical input.
+  const cleanupEnabled = process.env.OPEN_BRAIN_DISABLE_CLEANUP !== '1'
+  const timer = cleanupEnabled ? setInterval(() => { void cleanup().catch(() => console.error('Cleanup failed')) }, 60 * 60 * 1000) : undefined
+  if (cleanupEnabled && services.config.stream.cleanup_on_startup) await cleanup()
   const shutdown = async () => {
     clearInterval(timer); distillationScheduler.stop(); await closeSessions()
     await new Promise<void>(resolve => http.close(() => resolve()))

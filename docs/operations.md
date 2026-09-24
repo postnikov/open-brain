@@ -77,82 +77,125 @@ Keep backup files and proof. Restore the registry from its task snapshot (or rem
 only these three entries if it has since changed). Do not restore the old automatic
 deleting backup script into scheduled use.
 
-## HTTP local auth (prepared; stage 2 activation)
+## HTTP local auth (stage 2 deployed on the local Mac)
 
-The production entry point remains `src/server.ts`. The secured entry point is
-`src/server-hardened.ts` / `npm run server:hardened`. No live plist or MCP config is
-rewritten by stage 1. Both clients currently lack auth, so enabling the secured
-entry point before their migration would break them. Shared `json()` no longer
-adds wildcard CORS; the running process retains its previously loaded code.
+The local launchd job runs `src/server-hardened.ts`. `src/server.ts` is the legacy
+entry and must not be used as a rollback: it exposes unauthenticated HTTP.
+`ops/http-rollout.py` performs the approved cutover with dated adjacent 0600
+backups of both client configs and the server plist. Its private manifest lives
+outside git. Other client entries/settings are preserved and concurrent config
+changes are rejected. The local rollout pauses both startup and hourly cleanup
+with `OPEN_BRAIN_DISABLE_CLEANUP=1` until the separate P0-3 TTL work is deployed.
+Distillation itself retains the existing model, prompt and cron policy.
 
-Before starting the secured entry point, set `OPEN_BRAIN_HTTP_TOKEN_FILE` to an
-absolute path containing 32 random bytes encoded as 64 lowercase hex characters.
-Create it with owner-only mode 0600, backed up before rotation; do not print it,
-put it in argv, git, browser storage or logs. Example creation in an approved
-activation window (fails if the file already exists):
+### Secret and clients
 
-```python
-import os, secrets
-path = os.path.expanduser('~/.open-brain/http-token')
-fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-with os.fdopen(fd, 'w') as f:
-    f.write(secrets.token_hex(32) + '\n')
+The local token is stored **only in login Keychain**, using `secret set`:
+
+```sh
+python3 -c 'import secrets; print(secrets.token_hex(32))' | secret set OPEN_BRAIN_HTTP_TOKEN open-brain
 ```
 
-Bind is strictly `127.0.0.1`; `PORT` defaults to 3100. Host authorities are exactly
-`127.0.0.1:<port>` and `localhost:<port>`; Origins are exactly their HTTP origins.
-Forwarding headers are ignored. Bearer is required on every MCP method, all API
-routes and health. MCP session IDs never authenticate. OPTIONS only grants exact
-allowed Origins. Directory scan/start is blocked before body parsing and through
-the wrapped import service. Upload retains its 50-file / 100 KB-per-content /
-6 MB-body limits. Standalone CLI vault indexing is not exposed by this HTTP entry.
+Run creation only after checking whether this entry already exists; do not rotate
+an existing token accidentally. Never print the token, pass it yourself in argv,
+save it in a report/config file, or capture auth-helper stdout in a log. The
+existing `secret` CLI writes the keychain item; its at-rest protection is not an
+isolation boundary against programs running as the same logged-in user.
 
-The browser receives a data-free shell and asks for the token. The token remains
-in page memory; same-origin fetch adds it, redirects are rejected, and Lock/reload
-clears it. A 401 prompts login again without automatically replaying mutations.
-Existing inline UI handlers require `unsafe-inline` CSP; this is not a full XSS
-audit. Native client and full UI acceptance remain release gates.
+The server plist names `OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE` (locally
+`vibe/open-brain/OPEN_BRAIN_HTTP_TOKEN`); `src/security/keychain.ts` reads that
+entry using `/usr/bin/security` with a five-second timeout. A locked/unavailable
+Keychain, malformed value or ambiguous source fails closed **before bootstrap**.
+The portable owner-only `OPEN_BRAIN_HTTP_TOKEN_FILE` mode remains supported for
+other deployments, but exactly one source is allowed and this Mac uses no token
+file. Keychain must be unlocked after GUI login.
 
-Client changes for Max's approved stage 2 (edit only the existing open-brain entry,
-keep other settings, and back up both files first):
+Both installed clients support a dynamic headers helper. They read Keychain when
+they connect; no GUI environment injection or persistent plaintext token is used:
 
 ```toml
-# ~/.codex/config.toml
+# ~/.codex/config.toml — actual absolute node/tsx/repo paths required
 [mcp_servers.open-brain]
 url = "http://127.0.0.1:3100/mcp"
-bearer_token_env_var = "OPEN_BRAIN_HTTP_TOKEN"
+http_headers_helper = "/absolute/node /absolute/tsx /absolute/open-brain/src/security/headers.ts vibe/open-brain/OPEN_BRAIN_HTTP_TOKEN"
 ```
 
 ```json
 {
   "type": "http",
   "url": "http://127.0.0.1:3100/mcp",
-  "headers": { "Authorization": "Bearer ${OPEN_BRAIN_HTTP_TOKEN}" }
+  "headersHelper": "/absolute/node /absolute/tsx /absolute/open-brain/src/security/headers.ts vibe/open-brain/OPEN_BRAIN_HTTP_TOKEN"
 }
 ```
 
-The JSON is the `mcpServers.open-brain` value in `~/.claude.json`. Ensure the actual
-Codex Desktop and Claude Code processes inherit `OPEN_BRAIN_HTTP_TOKEN` securely;
-putting it only in the server's `.env` does not do that. Use the existing keychain /
-GUI env mechanism after approval, or launch clients from an environment that reads
-the token file without echoing it. Validate header expansion in the installed
-Claude version before switching the server. Documentation: [Codex MCP](https://developers.openai.com/codex/mcp/),
-[Claude Code MCP headers and env expansion](https://code.claude.com/docs/en/mcp).
+The JSON is only the `mcpServers.open-brain` entry in `~/.claude.json`.
+`ops/http-rollout.py` derives absolute executable paths from the existing plist.
+The helper's JSON stdout is a credential channel directly to the client, never a
+diagnostic command. References: [Codex MCP headers helper](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
+[Claude Code dynamic headers](https://code.claude.com/docs/en/mcp#dynamic-headers).
 
-After clients are ready, back up the server plist, change only the entry path to
-`src/server-hardened.ts` and add `OPEN_BRAIN_HTTP_TOKEN_FILE` (path, not token).
-Restart during the approved window. Confirm `lsof` shows only 127.0.0.1; in **both
-actual clients**, reconnect, list tools and call `brain_recent`/`brain_stats`.
-Test UI login/read/upload/lock and wrong token/Origin/Host. SDK smoke tests are not
-evidence that the two native clients have been migrated. No external-node LAN
-probe has been performed. Docker needs a separate ingress design; this entry is
-for local launchd only.
+Existing client processes may retain their old configuration. Reconnect after
+reloading MCP settings, or restart Claude Code / Codex Desktop if necessary.
+Fresh Claude Code and Codex app-server processes were verified with live
+`brain_search`; CLI config listings alone are not proof of a working connection.
+No restart of another person's active client session is done by the rollout.
 
-Rotation: securely replace token file, refresh both clients' environment, restart
-secured server, reconnect. Old token and old sessions must fail. If activation
-fails, stop HTTP and use the existing stdio MCP after verifying it; **do not**
-restore wildcard unauthenticated HTTP as a security rollback. Stage 1 itself has
-not activated auth, so it requires no application rollback.
+### Security boundary and acceptance
+
+Bind is strictly `127.0.0.1`; `PORT` defaults to 3100. Host authorities are exactly
+`127.0.0.1:<port>` and `localhost:<port>`; Origins are exactly their HTTP origins.
+Forwarding headers are ignored. Bearer is required on every MCP method, API route
+and health endpoint. Session IDs never authenticate. OPTIONS only grants exact
+allowed Origins. Directory scan/start is blocked before body parsing and through
+the upload-only service wrapper. Upload retains its 50-file / 100 KB-per-content /
+6 MB-body limits. Standalone CLI vault indexing is not exposed by this HTTP entry.
+
+The browser gets a data-free shell and asks for the token. It stays in page
+memory; same-origin fetch adds it, redirects are rejected, and Lock/reload clears
+it. A 401 prompts login without automatically replaying mutations. Existing
+inline UI handlers require `unsafe-inline` CSP; this is not a full XSS audit.
+Automated HTTP/MCP tests use synthetic data and fake services. Full live browser
+CRUD/upload/export acceptance is separate from the native-client rollout smoke.
+
+Acceptance: verify `lsof` shows only 127.0.0.1, correct bearer gives 200,
+missing/wrong bearer gives 401, hostile Host/Origin and directory import give 403.
+Probe every non-loopback address on the Mac; this is not a probe from a second
+machine. Reconnect and call a read tool from **both native clients**, not only an
+SDK. A live semantic search invokes the embedding API and writes an activity log.
+Other HTTP callers must supply auth too; health endpoints are deliberately not
+exempt. Docker/remote access need a separate ingress design.
+
+### Cutover and rollback
+
+After an approved window, fresh full backup/restore and green tests:
+
+```sh
+python3 ops/http-rollout.py activate --state /absolute/private/activation.json --apply
+python3 ops/http-rollout.py check-rollback --state /absolute/private/activation.json
+```
+
+Run `PYTHONDONTWRITEBYTECODE=1 python3 ops/test_http_rollout.py` for isolated
+config/fault tests. A nonzero bootout response is judged by whether launchd
+actually removed the old job; starting a second listener is refused.
+
+One-command security rollback:
+
+```sh
+python3 ops/http-rollout.py rollback --state /absolute/private/activation.json --apply
+```
+
+Rollback verifies backups and unchanged Open Brain entries/plist, disables and
+unloads HTTP, and changes only the two client entries to `ops/stdio-maintenance.py`.
+This wrapper passes the same server environment/DB to `src/index.ts`; it runs no
+HTTP listener, distillation scheduler or startup cleanup. Reconnect both clients.
+All data, snapshots, Keychain token and additive schema remain. It also handles
+an interrupted cutover, without replacing unrelated concurrent client settings.
+No legacy HTTP restart, git reset, database rewind, data deletion or token deletion.
+The stage-1 `scratchpad/rollback-open-brain-p0.py` is obsolete after this cutover.
+
+For rotation, update the same Keychain entry securely, restart the hardened
+server, and reconnect clients so their helpers fetch the new token. Old tokens
+must fail. Do not restore the previous unauthenticated plist as a recovery step.
 
 ## Distillation replay (stage 1 substrate; not activated)
 
