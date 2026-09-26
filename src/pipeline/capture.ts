@@ -33,10 +33,15 @@ export function createCapturePipeline(
   repository: ThoughtsRepository,
 ): CapturePipeline {
   async function prepare(input: CaptureInput): Promise<CreateThoughtInput> {
-    const [embedding, metadata] = await Promise.all([
+    // Settle both billable requests before releasing the durable job lease/context.
+    const results = await Promise.allSettled([
       embeddingService.embed(input.content),
       metadataService.extract(input.content),
     ])
+    const [embeddingResult, metadataResult] = results
+    if (embeddingResult.status === 'rejected') throw embeddingResult.reason
+    if (metadataResult.status === 'rejected') throw metadataResult.reason
+    const embedding = embeddingResult.value, metadata = metadataResult.value
     return {
       content: input.content,
       source: input.source,

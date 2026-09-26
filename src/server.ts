@@ -25,6 +25,7 @@ async function main(): Promise<void> {
     baseServices.distillationService,
     baseServices.config.distillation.schedule,
     baseServices.config.distillation.enabled,
+    baseServices.config.distillation.retry_poll_ms,
   )
   distillationScheduler.start()
 
@@ -145,12 +146,13 @@ async function main(): Promise<void> {
       logger.error({ err: error }, 'Compost cleanup failed')
     }
   }
-  await runCompostCleanup()
-  if (services.config.stream.cleanup_on_startup) {
+  const cleanupEnabled = process.env.OPEN_BRAIN_DISABLE_CLEANUP !== '1' && process.env.OPEN_BRAIN_MAINTENANCE !== '1'
+  if (cleanupEnabled) await runCompostCleanup()
+  if (cleanupEnabled && services.config.stream.cleanup_on_startup) {
     await runStreamCleanup(services.streamRepository)
   }
-  const cleanupInterval = setInterval(runCompostCleanup, 60 * 60 * 1000)
-  const streamCleanupInterval = setInterval(() => runStreamCleanup(services.streamRepository), 60 * 60 * 1000)
+  const cleanupInterval = cleanupEnabled ? setInterval(runCompostCleanup, 60 * 60 * 1000) : undefined
+  const streamCleanupInterval = cleanupEnabled ? setInterval(() => runStreamCleanup(services.streamRepository), 60 * 60 * 1000) : undefined
 
   httpServer.listen(PORT, () => {
     logger.info({ port: PORT }, 'Open Brain HTTP MCP server started')

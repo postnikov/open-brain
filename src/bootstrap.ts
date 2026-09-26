@@ -1,3 +1,4 @@
+import { RetryStore } from './distillation/retry-store.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { loadConfig, getDatabaseUrl } from './config/loader.js'
 import { createDatabase } from './db/connection.js'
@@ -52,6 +53,15 @@ export async function bootstrapServices(): Promise<AppServices> {
   }
 
   const { db, pool } = await createDatabase(databaseUrl)
+  if (process.env.OPEN_BRAIN_MAINTENANCE !== '1') {
+    try {
+      const guard = await pool.query(`SELECT EXISTS(SELECT 1 FROM pg_trigger
+        WHERE tgrelid='stream'::regclass AND tgname='protect_stream_distillation' AND tgenabled='O') AS enabled`)
+      await pool.query('SELECT next_attempt_at,blocked FROM distillation_retry_jobs LIMIT 0')
+      await pool.query('SELECT id FROM distillation_ai_calls LIMIT 0')
+      if (!guard.rows[0]?.enabled) throw new Error('Missing stream guard')
+    } catch { await pool.end(); throw new Error('Durable distillation migration required before startup') }
+  }
   const repository = createThoughtsRepository(db)
   const activityLogger = createActivityLogger(db)
   const embeddingService = createEmbeddingService(apiKey, config.openai.embedding_model)
@@ -73,6 +83,7 @@ export async function bootstrapServices(): Promise<AppServices> {
       minBlockLength: config.distillation.min_block_length,
     },
     apiKey,
+    new RetryStore(pool, { baseDelayMs: config.distillation.retry_base_ms, maxDelayMs: config.distillation.retry_max_ms, maxAttempts: config.distillation.retry_max_attempts }),
   )
 
   return { pipeline, embeddingService, repository, activityLogger, importService, streamRepository, distillationService, distillationRepo, config, pool }

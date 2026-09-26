@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import pg from 'pg'
 import pgvector from 'pgvector/pg'
 import { logger } from '../shared/logger.js'
@@ -169,6 +170,7 @@ async function migrate(): Promise<void> {
     await client.query(DISTILLATION_LOG_SQL)
     logger.info('Distillation log table created')
 
+    await client.query(await readFile(new URL('../../ops/sql/distillation-retry.sql', import.meta.url), 'utf8'))
     logger.info('Migrations complete')
   } catch (error) {
     logger.error({ err: error }, 'Migration failed')

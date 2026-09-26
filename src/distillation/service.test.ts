@@ -1,226 +1,131 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeAll, afterAll, beforeEach } from 'vitest'
 import { createDistillationService } from './service.js'
-import { DistillationError } from '../shared/errors.js'
-import type { DistillationRepository, DistillationRunResult } from './types.js'
-import type { StreamBlock, StreamRepository } from '../stream/types.js'
+import { bin, startFixture } from './test-fixture.js'
+import { RetryStore } from './retry-store.js'
 import type { CapturePipeline } from '../pipeline/capture.js'
-import type { Thought } from '../repository/types.js'
+import { createCapturePipeline } from '../pipeline/capture.js'
+import { createEmbeddingService } from '../pipeline/embeddings.js'
+import { createMetadataService } from '../pipeline/metadata.js'
+const { completionsCreate, embeddingsCreate }=vi.hoisted(()=>({completionsCreate:vi.fn(),embeddingsCreate:vi.fn()}))
+vi.mock('openai',()=>({default:class{chat={completions:{create:completionsCreate}};embeddings={create:embeddingsCreate}}}))
+const config={model:'gpt-4o-mini',temperature:0.3,maxBlocksPerRun:50,minBlockLength:20}
+const response=(thoughts:unknown[])=>({choices:[{message:{content:JSON.stringify({thoughts})}}],usage:{total_tokens:1000,prompt_tokens:800,completion_tokens:200}})
+const thoughts=[{content:'First retained thought',content_type:'insight'},{content:'Second failed thought',content_type:'decision'}]
 
-const { completionsCreate } = vi.hoisted(() => ({ completionsCreate: vi.fn() }))
-
-vi.mock('openai', () => ({
-  default: class {
-    chat = { completions: { create: completionsCreate } }
-  },
-}))
-
-const CONFIG = {
-  model: 'gpt-4o-mini',
-  temperature: 0.3,
-  maxBlocksPerRun: 50,
-  minBlockLength: 20,
-}
-
-const SAVED_THOUGHT: Thought = {
-  id: 'saved-1',
-  content: 'extracted',
-  contentType: 'insight',
-  source: 'distillation',
-  sourceRef: null,
-  title: null,
-  tags: ['distilled'],
-  topics: null,
-  sentiment: null,
-  weight: 1,
-  compostedAt: null,
-  epistemicStatus: null,
-  createdAt: new Date(),
-  thoughtAt: null,
-  updatedAt: null,
-}
-
-function makeBlock(overrides: Partial<StreamBlock> = {}): StreamBlock {
-  return {
-    id: 'block-1',
-    sessionId: 'session-1',
-    blockNumber: 0,
-    topic: null,
-    content: 'A sufficiently long stream block content for distillation.',
-    participants: null,
-    sourceClient: null,
-    pinned: false,
-    distilledAt: null,
-    distillationRunId: null,
-    createdAt: new Date(),
-    expiresAt: null,
-    ...overrides,
+describe.skipIf(!bin)('production distillation service — real PostgreSQL, fake AI',()=>{
+  let fixture:Awaited<ReturnType<typeof startFixture>>
+  beforeAll(async()=>{fixture=await startFixture()},20_000)
+  afterAll(async()=>{await fixture?.close()},20_000)
+  beforeEach(()=>completionsCreate.mockReset())
+  async function setup(content='A sufficiently long stream block for production service testing.'){
+    const db=await fixture.database()
+    const block=await db.stream.write({sessionId:'synthetic',blockNumber:0,content},30)
+    const prepare=vi.fn(async(input:any)=>({...input,title:'Synthetic'}))
+    const capture=vi.fn(async()=>{throw new Error('Legacy capture must never be used')})
+    const pipeline={prepare,capture} as CapturePipeline
+    const make=()=>createDistillationService(db.stream,pipeline,db.logs,config,'fake-key',db.store)
+    return {...db,block,prepare,capture,make,service:make()}
   }
-}
-
-function llmResponse(thoughts: unknown[], usage = { total_tokens: 1000, prompt_tokens: 800, completion_tokens: 200 }) {
-  return {
-    choices: [{ message: { content: JSON.stringify({ thoughts }) } }],
-    usage,
-  }
-}
-
-function buildService(blocks: readonly StreamBlock[]) {
-  const findPendingForDistillation = vi.fn(async () => blocks)
-  const markDistilled = vi.fn(async (ids: readonly string[]) => ids.length)
-  const streamRepo = { findPendingForDistillation, markDistilled } as unknown as StreamRepository
-
-  const logRun = vi.fn(async (result: DistillationRunResult) => result.runId)
-  const distillationRepo = { logRun } as unknown as DistillationRepository
-
-  const capture = vi.fn(async () => ({ thought: SAVED_THOUGHT }))
-  const pipeline = { capture } as unknown as CapturePipeline
-
-  const service = createDistillationService(streamRepo, pipeline, distillationRepo, CONFIG, 'test-key')
-  return { service, findPendingForDistillation, markDistilled, logRun, capture }
-}
-
-describe('createDistillationService', () => {
-  it('returns an empty success run when there are no pending blocks', async () => {
-    const { service, logRun, markDistilled } = buildService([])
-
-    const result = await service.run('manual')
-
-    expect(result.status).toBe('success')
-    expect(result.blocksProcessed).toBe(0)
-    expect(result.thoughtsCreated).toBe(0)
+  it('release gate: mixed failure retains input and does not report success',async()=>{
+    const x=await setup();completionsCreate.mockResolvedValueOnce(response(thoughts))
+    const markDistilled=vi.spyOn(x.stream,'markDistilled')
+    x.prepare.mockImplementation(async input=>{if(input.content.startsWith('Second'))throw new Error('metadata enum request/recommendation');return {...input,title:'Synthetic'}})
+    const result=await x.service.run('manual')
+    expect.soft(result.status).toBe('partial');expect(markDistilled).not.toHaveBeenCalled()
+    expect((await x.stream.findBySession('synthetic',10))[0]!.distilledAt).toBeNull()
+    const items=(await x.pool.query('SELECT * FROM distillation_retry_items ORDER BY item_index')).rows
+    expect(items.filter(i=>i.thought_id)).toHaveLength(1)
+    x.prepare.mockImplementation(async input=>({...input,title:'Synthetic'}))
+    const resumed=await x.make().run('retry')
+    expect(resumed.status).toBe('success');expect(resumed.thoughtsCreated).toBe(2)
+    expect(completionsCreate).toHaveBeenCalledOnce();expect(x.capture).not.toHaveBeenCalled()
+    expect(resumed.tokensUsed).toBe(1000)
+    expect(resumed.estimatedCost).toBeCloseTo(0.00024,6)
+    expect((await x.pool.query('SELECT count(*)::int n FROM thoughts')).rows[0].n).toBe(2)
+    expect((await x.pool.query('SELECT sum(thoughts_created)::int n FROM distillation_log')).rows[0].n).toBe(2)
+    expect((await x.pool.query('SELECT thought_id FROM distillation_retry_items ORDER BY item_index')).rows[0].thought_id).toBe(items[0].thought_id)
+  })
+  it('short and valid empty extraction terminate successfully',async()=>{
+    for(const content of ['short','Long source block with nothing worth retaining']){
+      const x=await setup(content);completionsCreate.mockResolvedValue(response([]))
+      const result=await x.service.run('manual');expect(result.status).toBe('success')
+      expect((await x.stream.findBySession('synthetic',1))[0]!.distilledAt).not.toBeNull()
+    }
+    expect(completionsCreate).toHaveBeenCalledOnce()
+  })
+  it('quota and invalid extraction retain source, persist backoff and expose blocked state',async()=>{
+    for(const mode of ['quota','invalid']){
+      const x=await setup();const store=new RetryStore(x.pool,{baseDelayMs:1000,maxDelayMs:2000,maxAttempts:2})
+      const service=createDistillationService(x.stream,{prepare:x.prepare,capture:x.capture},x.logs,config,'fake',store)
+      if(mode==='quota')completionsCreate.mockRejectedValue(new Error('429'))
+      else completionsCreate.mockResolvedValue(response([{content:'invalid',content_type:'request'}]))
+      await expect(service.run('manual')).rejects.toThrow('retained')
+      const job=(await store.status())[0]!
+      expect(job.attempts).toBe(1);expect(job.blocked).toBe(false)
+      expect(new Date(job.next_attempt_at).getTime()).toBeGreaterThan(Date.now())
+      expect((await service.run('retry')).blocksProcessed).toBe(0)
+      await x.pool.query("UPDATE distillation_retry_jobs SET next_attempt_at=now()-interval '1 second'")
+      await expect(service.run('retry')).rejects.toThrow('retained')
+      expect((await store.status())[0]!.blocked).toBe(true)
+      expect((await x.stream.findBySession('synthetic',1))[0]!.distilledAt).toBeNull()
+      expect((await x.pool.query('SELECT count(*)::int n FROM distillation_ai_calls')).rows[0].n).toBe(2)
+    }
+  })
+  it('TTL retains pending, reserved and legacy-distilled input, deletes only durable completed input',async()=>{
+    const x=await setup();await x.pool.query("UPDATE stream SET expires_at=now()-interval '1 day'")
+    expect(await x.stream.cleanupExpired()).toBe(0)
+    await expect(x.stream.deleteById(x.block.id)).rejects.toThrow()
+    await x.pool.query('UPDATE stream SET distilled_at=now()')
+    expect(await x.stream.cleanupExpired()).toBe(0)
+    await x.pool.query('UPDATE stream SET distilled_at=NULL')
+    await x.store.reserveNext(50,config)
+    expect(await x.stream.cleanupExpired()).toBe(0)
+    await expect(x.stream.pin(x.block.id)).rejects.toThrow()
+    completionsCreate.mockResolvedValue(response(thoughts));expect((await x.service.run('manual')).status).toBe('success')
+    expect(await x.stream.cleanupExpired()).toBe(1)
+    expect((await x.pool.query('SELECT count(*)::int n FROM thoughts')).rows[0].n).toBe(2)
+    expect((await x.pool.query('SELECT input_snapshot FROM distillation_retry_jobs')).rows[0].input_snapshot[0].content).toBe(x.block.content)
+  })
+  it('identical upsert is idempotent; changed content requires a new block number',async()=>{
+    const x=await setup();const same=await x.stream.write({sessionId:'synthetic',blockNumber:0,content:x.block.content},30)
+    expect(same.id).toBe(x.block.id)
+    await expect(x.stream.write({sessionId:'synthetic',blockNumber:0,content:'changed'},30)).rejects.toThrow()
+    expect((await x.stream.write({sessionId:'synthetic',blockNumber:1,content:'correction'},30)).id).not.toBe(x.block.id)
+  })
+  it('concurrent services share one durable job and cannot duplicate effects',async()=>{
+    const x=await setup();completionsCreate.mockResolvedValue(response(thoughts))
+    await Promise.all([x.service.run('manual'),x.make().run('cli')])
+    expect((await x.pool.query('SELECT count(*)::int n FROM distillation_retry_jobs')).rows[0].n).toBe(1)
+    expect((await x.pool.query('SELECT count(*)::int n FROM thoughts')).rows[0].n).toBe(2)
+    expect(completionsCreate).toHaveBeenCalledOnce()
+  })
+  it('retry timer never selects fresh historical input',async()=>{
+    const x=await setup();expect((await x.service.run('retry')).blocksProcessed).toBe(0)
     expect(completionsCreate).not.toHaveBeenCalled()
-    expect(markDistilled).not.toHaveBeenCalled()
-    expect(logRun).toHaveBeenCalledOnce()
+    expect((await x.pool.query('SELECT count(*)::int n FROM distillation_retry_jobs')).rows[0].n).toBe(0)
   })
-
-  it('skips blocks below min_block_length without calling the LLM, but still marks them distilled', async () => {
-    completionsCreate.mockClear()
-    const short = [makeBlock({ id: 'b1', content: 'too short' }), makeBlock({ id: 'b2', content: 'also tiny' })]
-    const { service, markDistilled } = buildService(short)
-
-    const result = await service.run('manual')
-
-    expect(completionsCreate).not.toHaveBeenCalled()
-    expect(result.status).toBe('success')
-    expect(result.blocksProcessed).toBe(0)
-    expect(result.blocksSkipped).toBe(2)
-    expect(result.skipReasons).toBe(JSON.stringify({ too_short: 2 }))
-    expect(markDistilled).toHaveBeenCalledWith(['b1', 'b2'], result.runId)
+  it('accounts for embedding and invalid metadata responses, including retried preparation',async()=>{
+    const x=await setup()
+    const repository={create:vi.fn()}
+    const pipeline=createCapturePipeline(createEmbeddingService('fake','text-embedding-3-small'),createMetadataService('fake','gpt-4o-mini'),repository as any)
+    embeddingsCreate.mockResolvedValue({data:[{embedding:Array(1536).fill(0)}],usage:{total_tokens:10,prompt_tokens:10}})
+    completionsCreate.mockResolvedValueOnce(response([thoughts[0]]))
+      .mockResolvedValueOnce({choices:[{message:{content:'{"content_type":"request"}'}}],usage:{total_tokens:30,prompt_tokens:20,completion_tokens:10}})
+      .mockResolvedValueOnce({choices:[{message:{content:JSON.stringify({title:'Synthetic title',content_type:'note',tags:['test'],topics:['fixture'],sentiment:'neutral'})}}],usage:{total_tokens:30,prompt_tokens:20,completion_tokens:10}})
+    const service=createDistillationService(x.stream,pipeline,x.logs,config,'fake',x.store)
+    expect((await service.run('manual')).status).toBe('partial')
+    const result=await service.run('retry');expect(result.status).toBe('success');expect(result.tokensUsed).toBe(1080)
+    expect((await x.pool.query('SELECT phase,count(*)::int n FROM distillation_ai_calls GROUP BY phase ORDER BY phase')).rows).toEqual([
+      {phase:'embedding',n:2},{phase:'extraction',n:1},{phase:'metadata',n:2},
+    ])
+    expect(repository.create).not.toHaveBeenCalled()
   })
-
-  it('distills qualified blocks into thoughts with sourceRef back-links', async () => {
-    completionsCreate.mockClear()
-    completionsCreate.mockResolvedValueOnce(
-      llmResponse([{ content: 'An extracted insight', content_type: 'insight', tags: ['ai'] }]),
-    )
-    const blocks = [
-      makeBlock({ id: 'b1', sessionId: 's1' }),
-      makeBlock({ id: 'b2', sessionId: 's2', blockNumber: 1 }),
-    ]
-    const { service, capture, markDistilled, logRun } = buildService(blocks)
-
-    const result = await service.run('cron')
-
-    expect(completionsCreate).toHaveBeenCalledWith(expect.objectContaining({ model: CONFIG.model, temperature: CONFIG.temperature }))
-    expect(result.status).toBe('success')
-    expect(result.blocksProcessed).toBe(2)
-    expect(result.sessionsProcessed).toBe(2)
-    expect(result.thoughtsCreated).toBe(1)
-    expect(result.thoughtIds).toEqual([SAVED_THOUGHT.id])
-    expect(result.tokensUsed).toBe(1000)
-    expect(result.estimatedCost).toBeCloseTo(800 * 0.00000015 + 200 * 0.0000006, 6)
-
-    expect(capture).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: 'An extracted insight',
-        source: 'distillation',
-        contentType: 'insight',
-        tags: ['ai', 'distilled'],
-        sourceRef: JSON.stringify({
-          session_ids: ['s1', 's2'],
-          block_ids: ['b1', 'b2'],
-          distillation_run_id: result.runId,
-        }),
-      }),
-    )
-    expect(markDistilled).toHaveBeenCalledWith(['b1', 'b2'], result.runId)
-    expect(logRun).toHaveBeenCalledWith(expect.objectContaining({ status: 'success' }))
+  it('bounded attempts also stop repeatedly crashed workers',async()=>{
+    const x=await setup(), store=new RetryStore(x.pool,{baseDelayMs:0,maxDelayMs:0,maxAttempts:1})
+    const id=(await store.reserveNext(50,config))!
+    expect(await store.claim(id,60_000)).not.toBeNull()
+    await x.pool.query("UPDATE distillation_retry_jobs SET lease_until=now()-interval '1 second'")
+    expect(await store.claim(id,60_000)).toBeNull()
+    expect((await store.status())[0]!.blocked).toBe(true)
   })
-
-  it('returns partial status when the LLM yields no thoughts for qualified blocks', async () => {
-    completionsCreate.mockClear()
-    completionsCreate.mockResolvedValueOnce(llmResponse([]))
-    const { service } = buildService([makeBlock()])
-
-    const result = await service.run('manual')
-
-    expect(result.status).toBe('partial')
-    expect(result.thoughtsCreated).toBe(0)
-  })
-
-  it('continues past individual capture failures and reports partial status', async () => {
-    completionsCreate.mockClear()
-    completionsCreate.mockResolvedValueOnce(
-      llmResponse([
-        { content: 'First thought', content_type: 'insight' },
-        { content: 'Second thought', content_type: 'decision' },
-      ]),
-    )
-    const { service, capture } = buildService([makeBlock()])
-    capture.mockRejectedValue(new Error('embedding api down'))
-
-    const result = await service.run('manual')
-
-    expect(capture).toHaveBeenCalledTimes(2)
-    expect(result.status).toBe('partial')
-    expect(result.thoughtsCreated).toBe(0)
-  })
-
-  it('logs an error run and throws DistillationError when the LLM call fails', async () => {
-    completionsCreate.mockClear()
-    completionsCreate.mockRejectedValueOnce(new Error('429 quota exceeded'))
-    const { service, logRun, markDistilled } = buildService([makeBlock()])
-
-    await expect(service.run('cron')).rejects.toThrow(DistillationError)
-
-    expect(logRun).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'error', errorMessage: '429 quota exceeded' }),
-    )
-    expect(markDistilled).not.toHaveBeenCalled()
-    expect(service.isRunning()).toBe(false)
-  })
-
-  it('rejects a second run while one is in flight', async () => {
-    completionsCreate.mockClear()
-    let release!: (blocks: readonly StreamBlock[]) => void
-    const gate = new Promise<readonly StreamBlock[]>((resolve) => {
-      release = resolve
-    })
-    const { service, findPendingForDistillation } = buildService([])
-    findPendingForDistillation.mockReturnValueOnce(gate)
-
-    const first = service.run('manual')
-    expect(service.isRunning()).toBe(true)
-
-    await expect(service.run('manual')).rejects.toThrow('already running')
-
-    release([])
-    await first
-    expect(service.isRunning()).toBe(false)
-  })
-})
-
-// Opt-in release gate: deliberately RED against the unchanged legacy production engine.
-// Never convert to it.fails: this command must block rollout until integration is complete.
-it.skipIf(process.env.OPEN_BRAIN_DISTILLATION_RELEASE_GATE !== '1')('release gate: mixed failure retains input and does not report success', async () => {
-  completionsCreate.mockClear()
-  completionsCreate.mockResolvedValueOnce(llmResponse([
-    { content: 'First retained thought', content_type: 'insight' },
-    { content: 'Second failed thought', content_type: 'decision' },
-  ]))
-  const { service, capture, markDistilled } = buildService([makeBlock()])
-  capture.mockResolvedValueOnce({ thought: SAVED_THOUGHT }).mockRejectedValueOnce(new Error('metadata enum request/recommendation'))
-  const result = await service.run('manual')
-  expect.soft(result.status).toBe('partial')
-  expect(markDistilled).not.toHaveBeenCalled()
 })

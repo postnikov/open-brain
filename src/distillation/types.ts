@@ -48,6 +48,7 @@ export interface DistillationLogEntry {
 
 export interface DistillationService {
   readonly run: (trigger: string) => Promise<DistillationRunResult>
+  readonly retryStatus?: () => Promise<readonly Record<string, unknown>[]>
   readonly isRunning: () => boolean
 }
 

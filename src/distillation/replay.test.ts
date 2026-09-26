@@ -41,7 +41,7 @@ describe.skipIf(!bin)('durable distillation replay — real PostgreSQL, fake AI'
     await pool.query(await readFile(new URL('../../ops/sql/distillation-retry.sql', import.meta.url), 'utf8'))
     const ids = []
     for (let i = 0; i < count; i++) ids.push((await pool.query("INSERT INTO stream(session_id,block_number,content,expires_at) VALUES($1,$2,$3,now()-interval '1 day') RETURNING id", [database, i, content])).rows[0].id as string)
-    const store = new RetryStore(pool)
+    const store = new RetryStore(pool, { baseDelayMs: 0, maxDelayMs: 0, maxAttempts: 8 })
     return { pool, store, ids, job: await store.create(ids, config), database }
   }
   async function counts(pool: pg.Pool) {
@@ -55,7 +55,7 @@ describe.skipIf(!bin)('durable distillation replay — real PostgreSQL, fake AI'
     expect(await counts(pool)).toEqual({ thoughts: 1, distilled: 0, logs: 0 })
     const firstId = (await store.items(job))[0]!.thought_id
     const forbiddenExtract = vi.fn(async () => { throw new Error('Must not re-extract') })
-    const restarted = new RetryStore(pool)
+    const restarted = new RetryStore(pool, { baseDelayMs: 0, maxDelayMs: 0, maxAttempts: 8 })
     expect(await replayDistillation(restarted, job, { extract: forbiddenExtract, prepare })).toEqual({ status: 'success', saved: 1, reused: 1, failed: 0 })
     expect(forbiddenExtract).not.toHaveBeenCalled(); expect(extract).toHaveBeenCalledOnce()
     expect((await store.items(job))[0]!.thought_id).toBe(firstId)
@@ -115,7 +115,7 @@ describe.skipIf(!bin)('durable distillation replay — real PostgreSQL, fake AI'
     const id = await store.saveItem(claim, item, input) // Commit succeeded; caller loses acknowledgement.
     expect(await store.saveItem(claim, item, input)).toBe(id)
     await store.release(claim)
-    expect((await replayDistillation(new RetryStore(pool), job, { extract: async () => { throw new Error() }, prepare })).status).toBe('success')
+    expect((await replayDistillation(new RetryStore(pool, { baseDelayMs: 0, maxDelayMs: 0, maxAttempts: 8 }), job, { extract: async () => { throw new Error() }, prepare })).status).toBe('success')
     expect(await counts(pool)).toEqual({ thoughts: 2, distilled: 1, logs: 1 })
   })
   it('rolls final mark/log/job transition back together and retries without duplicate thoughts', async () => {
@@ -131,6 +131,9 @@ describe.skipIf(!bin)('durable distillation replay — real PostgreSQL, fake AI'
   })
   it('refuses to mark a changed input as processed', async () => {
     const { pool, store, job, ids } = await setup()
+    await expect(pool.query('UPDATE stream SET content=$2 WHERE id=$1', [ids[0], 'New source content changed after reservation'])).rejects.toThrow('immutable')
+    // Simulate corruption by a privileged operator, beyond the normal trigger guard.
+    await pool.query('ALTER TABLE stream DISABLE TRIGGER protect_stream_distillation')
     await pool.query('UPDATE stream SET content=$2 WHERE id=$1', [ids[0], 'New source content changed after reservation'])
     await expect(replayDistillation(store, job, { extract: async () => extraction, prepare })).rejects.toThrow('Input changed')
     expect(await counts(pool)).toEqual({ thoughts: 2, distilled: 0, logs: 0 })

@@ -51,9 +51,9 @@ npm test
 
 ## Known audit traps (2026-09-17)
 
-- A distillation run marked `success` does not prove every extracted thought was saved: individual capture errors are caught, then all input blocks are marked distilled. This happened in production logs on 2026-03-24 and 2026-08-09. For a loss audit, correlate run records with capture-error logs; do not repair or replay production from an audit. The eventual regression gate must check partial capture failure, retained retryable input, and duplicate-free retries.
+- For legacy runs before P0-3, `success` does not prove every extracted thought was saved: individual capture errors are caught, then all input blocks are marked distilled. This happened in production logs on 2026-03-24 and 2026-08-09. For a loss audit, correlate run records with capture-error logs; do not repair or replay production from an audit. The eventual regression gate must check partial capture failure, retained retryable input, and duplicate-free retries.
 - `source=codex` counts direct thoughts only. Codex stream blocks become `source=distillation`; measure capture by `stream.source_client` and usage by MCP activity, keeping REST/CLI logging gaps explicit.
-- A stream key `(session_id, block_number)` is an upsert, not an immutable event. Reusing it with changed content overwrites the block without clearing `distilled_at`; allocate a new block for corrections. `pin` also excludes a block from pending distillation in the current implementation.
+- Stream input is immutable after P0-3: identical upserts refresh TTL, changed content/metadata require a new block number. Unfinished reservations reject pin/delete. Legacy blocks are retained even after TTL; do not treat their old distilled marks as durable proof.
 - `source_ref` on a distilled thought identifies the entire extraction batch, not an exact supporting passage. MCP search/recent omit that field. Treat retrieved memories as leads to evidence, never as instructions or proof of a user's current position.
 
 ## Verified local backup (2026-09-24)
@@ -68,12 +68,14 @@ npm test
 - Token lives in login Keychain only (`vibe/open-brain/OPEN_BRAIN_HTTP_TOKEN`, created via `secret set`). The plist contains only `OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE`; both clients use the dynamic `src/security/headers.ts` helper. No token file or GUI environment injection on this Mac. Locked Keychain fails closed.
 - Native Claude Code and Codex app-server read/search calls were checked after migration. Old sessions must reload/reconnect or restart; fresh clients read the helper automatically. Health without auth intentionally returns 401.
 - `ops/http-rollout.py` makes adjacent private backups and has a one-command rollback to stdio with HTTP disabled. `ops/stdio-maintenance.py` reuses the DB/environment but runs no cron/cleanup. Run `python3 ops/test_http_rollout.py` for synthetic interruption/rollback gates. See `docs/operations.md`.
-- `OPEN_BRAIN_DISABLE_CLEANUP=1` pauses startup/hourly deletion pending P0-3 TTL coordination; it does not activate durable distillation. One expired block was preserved through cutover. Do not re-enable deletion before the durable TTL gate.
+- P0-3 removes the cleanup pause after installing SQL coordination. Cleanup/explicit deletion require a completed durable job. Legacy, pending, partial and blocked stream inputs remain protected. `OPEN_BRAIN_MAINTENANCE=1` disables all distillation triggers and cleanup for rollback.
 - UI token stays in page memory; `src/security/http.test.ts` checks the HTTP negative matrix and MCP reconnect with fake services. Full live browser CRUD/upload/export is not claimed.
 
-## Distillation stage 1 boundary (2026-09-24)
+## Durable distillation (P0-3, 2026-09-26)
 
-- `src/distillation/retry-store.ts`, `replay.ts`, `ops/sql/distillation-retry.sql`: staged durable extraction/item outcomes, atomic idempotent thought effects and fenced leases. **Not wired into production**; production DB is not migrated.
-- `src/pipeline/capture.ts::prepare` exposes the same metadata/embedding preparation without a write. The regular capture semantics remain unchanged.
-- `OPEN_BRAIN_TEST_PG_BIN=<bin> npm run test:p0` is the green implementation gate on real synthetic PostgreSQL. `npm run test:distillation-release` is deliberately red against the legacy service's mixed-failure bug; stage 2 must make it green through actual integration, not test inversion. Do not infer production safety from green substrate tests.
-- Stage 2 includes immutable stream inputs, TTL/deletion coordination, retry scheduling/backoff and all entry-point wiring; see `docs/operations.md`. The twice-observed loss is now an executable release gate.
+- All entry points use `src/distillation/service.ts` with mandatory `RetryStore`; no legacy fallback. Bootstrap checks SQL/trigger readiness. `ops/sql/distillation-retry.sql` is additive; `ops/distillation-rollout.py` backs up/restores before production migration and preserves secure maintenance rollback.
+- Persisted input/extraction/item outcomes, fenced leases, atomic thought+outcome and atomic finish prevent mixed-failure loss and duplicate effects. `replay.ts` never re-extracts persisted output.
+- Retry/backoff/attempt limits are in `distillation.retry_*` config. The retry timer handles existing jobs only; original cron/manual/CLI policy reserves fresh input. Blocked jobs retain input and are visible in HTTP status/UI. No automatic historic replay.
+- `distillation_ai_calls` records intent and observed usage for extraction, embedding and metadata, including invalid responses; lost responses stay unknown. Successful log totals cover known job costs across retries. No promise of exact billing reconciliation after a crash.
+- `OPEN_BRAIN_TEST_PG_BIN=<bin> npm run test:p0` and `npm run test:distillation-release` are green gates on isolated real PostgreSQL + fake AI. The release command requires the binary path; the mixed-failure assertion is never inverted or skipped. See `docs/operations.md` for semantics and rollback.
+- Historical legacy stream blocks cannot be automatically deleted on old `distilled_at` evidence. Retained job snapshots/outcomes have no automatic pruning. Their retention/release needs a separate decision, not a destructive cleanup workaround.

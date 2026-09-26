@@ -232,7 +232,10 @@ export function createStreamRepository(db: Database, ttlDays: number): StreamRep
       try {
         const result = await db
           .delete(stream)
-          .where(sql`${stream.expiresAt} < NOW() AND ${stream.pinned} = false`)
+          .where(sql`${stream.expiresAt} < NOW() AND ${stream.pinned} = false AND EXISTS (
+            SELECT 1 FROM distillation_retry_inputs i JOIN distillation_retry_jobs j ON j.id=i.job_id
+            WHERE i.block_id=${stream.id} AND j.state='complete'
+          )`)
           .returning({ id: stream.id })
         return result.length
       } catch (error) {

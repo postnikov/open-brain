@@ -1,4 +1,4 @@
-# Operations: staged P0 hardening
+# Operations: P0 hardening
 
 ## Full local backup (stage 1)
 
@@ -84,8 +84,9 @@ entry and must not be used as a rollback: it exposes unauthenticated HTTP.
 `ops/http-rollout.py` performs the approved cutover with dated adjacent 0600
 backups of both client configs and the server plist. Its private manifest lives
 outside git. Other client entries/settings are preserved and concurrent config
-changes are rejected. The local rollout pauses both startup and hourly cleanup
-with `OPEN_BRAIN_DISABLE_CLEANUP=1` until the separate P0-3 TTL work is deployed.
+changes are rejected. P0-3 removes `OPEN_BRAIN_DISABLE_CLEANUP=1` after the durable SQL guard is
+installed. Cleanup now requires a completed durable job; legacy distilled blocks
+remain retained.
 Distillation itself retains the existing model, prompt and cron policy.
 
 ### Secret and clients
@@ -197,48 +198,109 @@ For rotation, update the same Keychain entry securely, restart the hardened
 server, and reconnect clients so their helpers fetch the new token. Old tokens
 must fail. Do not restore the previous unauthenticated plist as a recovery step.
 
-## Distillation replay (stage 1 substrate; not activated)
+## Durable distillation (P0-3)
 
-`src/distillation/{retry-store,replay}.ts` and `ops/sql/distillation-retry.sql`
-implement the bounded persistence/idempotency part of the plan. They are **not
-called by production bootstrap or the secured HTTP entry point yet**. No production
-migration is applied. The original extraction prompt, models, metadata enums,
-weights, capture tagging and scheduler policy are unchanged.
+Every entry point uses the same `bootstrapServices()` → `createDistillationService()`
+→ `RetryStore`/`replayDistillation()` path: hardened HTTP manual runs, scheduled
+cron, CLI and stdio. Startup requires the migration and enabled stream guard;
+there is no silent fallback to the legacy distiller. Extraction prompt, models,
+metadata enums and normal capture tagging are unchanged.
 
-The substrate reserves source snapshots, persists validated extraction before
-capture, gives each item a stable UUID, and atomically inserts a thought plus its
-item outcome. A unique partial index on `thoughts.distillation_item_id` prevents
-repeated effects. The outcome is retained if a thought is deliberately deleted.
-Lease owner/generation fences stale writers; all SQL transactions are short and
-external AI preparation is outside them. Final input marking, success log and job
-completion are one transaction. A changed/disappeared input blocks completion.
-`pipeline.prepare()` reuses the existing embedding/metadata mapping without a DB
-write; the ordinary capture path still writes exactly as before.
+Jobs reserve immutable source snapshots before any AI request. Validated extraction
+is persisted before capture. Each extracted item has a stable UUID; thought insertion
+and item outcome commit together under a fenced lease. Partial failures retain the
+source and successful item IDs; subsequent attempts prepare only missing items.
+Final input marking, successful log and job completion commit together. Valid empty
+extraction and too-short inputs terminate successfully. Tombstone outcomes survive
+intentional thought deletion. Multiple processes cannot commit the same item twice.
 
-`OPEN_BRAIN_TEST_PG_BIN=/absolute/postgresql/bin npm run test:p0` requires a real
-isolated PostgreSQL cluster and runs all green implementation gates. It never reads
-production configuration. The suite covers mixed/all failures, no-thoughts and
-short inputs, invalid schema/quota, restart/reuse, commit acknowledgement loss,
-independent-connection competition, expired-owner fencing, final-log rollback,
-changed inputs, and backup/restore/resume of unfinished work. Crash boundaries are
-simulated at durable API/transaction boundaries, not exhaustive OS kill testing.
+### TTL and input lifecycle
 
-`npm run test:distillation-release` is a **separate blocking gate on the currently
-wired legacy service**. It is intentionally red until stage 2 integrates the new
-persistence. It asserts mixed failure must not return success or mark the input.
-Do not mark it expected-failure or remove it to pass a release. The default suite
-skips this single release probe, not the implemented replay tests.
+`ops/sql/distillation-retry.sql` installs a database trigger used by every client:
 
-Stage 2 still needs integration into all HTTP/cron/CLI paths, immutable stream
-upserts, cleanup/explicit-delete coordination, persisted retry scheduling and
-backoff/blocked UI, complete AI usage accounting, maintenance rollback, native
-client acceptance and the approved production migration window. Until then the
-legacy partial-capture loss and TTL risks remain live. The substrate alone does
-not establish end-to-end losslessness and must not be enabled piecemeal.
+- Existing `(session_id, block_number)` content, topic, participants and source are
+  immutable. Identical writes can refresh TTL; corrections need a new block number.
+- Reserved unfinished inputs cannot be pinned or deleted. Snapshots remain in jobs.
+- Automatic **and explicit** stream deletion require a completed durable job.
+  Pending, partial, blocked and **legacy-distilled** blocks remain retained even
+  after TTL expires. Old `distilled_at` alone is not proof of lossless processing.
 
-Migration rehearsal must preserve all existing table counts on a restored copy.
-Never run app startup/cleanup or historic replay on that copy as a test. The
-migration is additive and its rollback leaves jobs/items/outcomes intact; there
-is no `DROP` or production rewind. After activation, rollback to a maintenance
-reader with all distillation/cleanup triggers off; do not run the old distiller
-against partially completed new jobs.
+This deliberately trades additional disk retention for safety. Do not bulk re-mark
+or replay legacy blocks to make them deletable. Their audit/release is separate work.
+Completed jobs, snapshots, item outcomes and usage ledger have no automatic retention
+policy yet. Compost cleanup retains its previous policy; the P0-3 cutover checks
+its due count before enabling the existing timer.
+
+### Backoff, blocked jobs and usage
+
+Config keys under `distillation` (milliseconds): `retry_base_ms=60000`,
+`retry_max_ms=3600000`, `retry_max_attempts=8`, `retry_poll_ms=60000`.
+Failures use persisted exponential backoff capped at the maximum. Exhaustion,
+including repeated lease-expiry crashes, blocks the job and retains its inputs.
+The retry timer runs only when distillation is enabled and processes **existing
+jobs only**; it never initiates historical extraction. The original daily cron
+and explicit manual/CLI calls can reserve new input. Each call handles one batch.
+Manual runs do not bypass backoff or blocked state.
+
+`GET /api/distillation/status` exposes up to 100 unfinished jobs with attempts,
+next retry time, remaining items, known tokens/cost and unknown-usage counts.
+The stream UI status shows retained/blocked jobs and the next retry. To unblock,
+first diagnose the cause, then explicitly set the selected job's `blocked=false`,
+`attempts=0`, `next_attempt_at=now()` in an approved maintenance action. Never erase
+its extraction/items/outcomes or create a new overlapping job.
+
+`distillation_ai_calls` records intent before extraction, embedding and metadata
+requests, and observed usage before response validation. Thus invalid metadata
+still has recorded usage. SDK retries are disabled inside durable requests;
+the job owns retries. Calls interrupted before the response/DB acknowledgement
+remain **unknown**, not zero-cost. Pricing uses the existing estimate table;
+unknown prices remain NULL in the ledger. A successful run log includes all known
+job usage across retries; partial logs do not repeat those cumulative costs.
+For unfinished work or billing reconciliation use the ledger, not just successful
+run logs. Exact provider billing across a crash cannot be established locally.
+
+### Gates and deployment
+
+```sh
+OPEN_BRAIN_TEST_PG_BIN=/absolute/postgresql/bin npm run test:p0
+OPEN_BRAIN_TEST_PG_BIN=/absolute/postgresql/bin npm run test:distillation-release
+PYTHONDONTWRITEBYTECODE=1 python3 ops/test_distillation_rollout.py
+```
+
+The release command refuses to run without an isolated PostgreSQL binary path.
+Its mixed-failure assertion now exercises the **wired production service** against
+real PostgreSQL with fake AI: no success/input marking on partial failure, restart
+without extraction, exactly-once item effects. The same suite verifies TTL, immutable
+writes, independent services, blocked attempts and AI usage. Replay tests additionally
+cover commit acknowledgement loss, stale-owner fencing, final-log rollback and
+backup/restore/resume of unfinished jobs. No production data/API calls are used.
+
+First rehearse the SQL on a restored database and compare every original table
+count. Do not run application startup or historical extraction there. After passing
+gates and verifying authenticated status `running=false`:
+
+```sh
+python3 ops/distillation-rollout.py activate --state /absolute/private/p0-3/activation.json --apply
+python3 ops/distillation-rollout.py check-rollback --state /absolute/private/p0-3/activation.json
+```
+
+The operator tool snapshots the plist, unloads the service, makes and restores a
+fresh full backup, applies additive SQL, verifies counts and stream content hashes,
+removes the cleanup pause and starts hardened HTTP. Proofs remain next to the private
+manifest. `ops/distillation-db.mjs inspect` is read-only; `migrate` is an explicit
+operator command, never a startup side effect. Both use the backup connection resolver
+so credentials/DSNs do not appear in argv/output. `npm run migrate` includes this SQL
+for new installations, but should not replace the controlled production procedure.
+
+One-command maintenance rollback:
+
+```sh
+python3 ops/distillation-rollout.py maintenance --state /absolute/private/p0-3/activation.json --apply
+```
+
+This preserves authenticated HTTP and client configuration, sets
+`OPEN_BRAIN_MAINTENANCE=1` plus `OPEN_BRAIN_DISABLE_CLEANUP=1`, and restarts with all
+cron/retry/cleanup disabled and manual/CLI distillation refused. No DB rewind, schema
+DROP, thought deletion, token change or legacy HTTP restart. The stdio maintenance
+wrapper sets the same maintenance flag. The old HTTP rollback manifest may reject
+its now-changed plist; use the P0-3 maintenance rollback first.

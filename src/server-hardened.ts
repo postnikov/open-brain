@@ -9,7 +9,7 @@ async function main() {
   // Fail closed before bootstrap, scheduler or cleanup can touch data.
   const security = await loadHttpSecurity()
   const services = await bootstrapServices()
-  const distillationScheduler = createDistillationScheduler(services.distillationService, services.config.distillation.schedule, services.config.distillation.enabled)
+  const distillationScheduler = createDistillationScheduler(services.distillationService, services.config.distillation.schedule, services.config.distillation.enabled, services.config.distillation.retry_poll_ms)
   const { http, closeSessions } = createHardenedServer({ ...services, distillationScheduler }, security)
   await new Promise<void>((resolve, reject) => { http.once('error', reject); http.listen(security.port, security.host, resolve) })
   distillationScheduler.start()
@@ -19,7 +19,7 @@ async function main() {
   }
   // Deployment/maintenance may pause deletion until durable TTL coordination ships.
   // This does not change distillation policy or replay historical input.
-  const cleanupEnabled = process.env.OPEN_BRAIN_DISABLE_CLEANUP !== '1'
+  const cleanupEnabled = process.env.OPEN_BRAIN_DISABLE_CLEANUP !== '1' && process.env.OPEN_BRAIN_MAINTENANCE !== '1'
   const timer = cleanupEnabled ? setInterval(() => { void cleanup().catch(() => console.error('Cleanup failed')) }, 60 * 60 * 1000) : undefined
   if (cleanupEnabled && services.config.stream.cleanup_on_startup) await cleanup()
   const shutdown = async () => {

@@ -13,6 +13,7 @@ try:
         raise ValueError('Unexpected server entry')
     args[-1] = str(root / 'src/index.ts')
     env = dict(os.environ, **plist.get('EnvironmentVariables', {}))
+    env['OPEN_BRAIN_MAINTENANCE'] = '1'
     os.chdir(root)
     os.execve(args[0], args, env)
 except Exception:

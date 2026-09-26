@@ -21,6 +21,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     cleanup_on_startup: true,
   },
   distillation: {
+    retry_base_ms: 60_000,
+    retry_max_ms: 3_600_000,
+    retry_max_attempts: 8,
+    retry_poll_ms: 60_000,
     enabled: true,
     schedule: '0 3 * * *',
     model: 'gpt-4o-mini',

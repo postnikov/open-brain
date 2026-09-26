@@ -16,6 +16,7 @@ export async function replayDistillation(store: RetryStore, jobId: string, deps:
   let leaseLost = false
   const heartbeat = setInterval(() => { void store.renew(claim, leaseMs).catch(() => { leaseLost = true }) }, Math.max(10, Math.floor(leaseMs / 3)))
   let saved = 0, reused = 0, failed = 0
+  let failure: string | undefined
   try {
     if (claim.extraction === null) {
       const qualified = claim.blocks.filter(b => b.content.length >= claim.config.minBlockLength)
@@ -40,9 +41,13 @@ export async function replayDistillation(store: RetryStore, jobId: string, deps:
       } catch { failed++ }
     }
     if (!failed) { await store.finish(claim); return { status: 'success' as const, saved, reused, failed } }
+    failure = 'capture_failed'
     return { status: 'partial' as const, saved, reused, failed }
+  } catch (error) {
+    failure = 'extraction_or_commit_failed'
+    throw error
   } finally {
     clearInterval(heartbeat)
-    await store.release(claim)
+    await store.release(claim, failure)
   }
 }

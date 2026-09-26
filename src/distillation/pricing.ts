@@ -2,6 +2,7 @@ import { logger } from '../shared/logger.js'
 
 // USD per 1M tokens
 const MODEL_PRICING: Record<string, { readonly input: number; readonly output: number }> = {
+  'text-embedding-3-small': { input: 0.02, output: 0 },
   'gpt-4o-mini': { input: 0.15, output: 0.6 },
   'gpt-4o': { input: 2.5, output: 10 },
   'gpt-4.1-nano': { input: 0.1, output: 0.4 },

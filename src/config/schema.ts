@@ -24,6 +24,10 @@ export const streamConfigSchema = z.object({
 })
 
 export const distillationConfigSchema = z.object({
+  retry_base_ms: z.number().int().min(1000).default(60_000),
+  retry_max_ms: z.number().int().min(1000).default(3_600_000),
+  retry_max_attempts: z.number().int().min(1).max(100).default(8),
+  retry_poll_ms: z.number().int().min(1000).default(60_000),
   enabled: z.boolean().default(true),
   schedule: z.string().default('0 3 * * *'),
   model: z.string().default('gpt-4o-mini'),

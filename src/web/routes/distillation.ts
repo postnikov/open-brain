@@ -26,6 +26,7 @@ export const distillationRoutes: readonly Route[] = [
 
       json(res, {
         running,
+        retry_jobs: await services.distillationService.retryStatus?.() ?? [],
         last_run: lastRun ? {
           id: lastRun.id,
           trigger: lastRun.trigger,

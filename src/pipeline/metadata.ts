@@ -1,3 +1,4 @@
+import { recordAiCall, distillationUsage } from '../distillation/usage.js'
 import OpenAI from 'openai'
 import { z } from 'zod'
 import { logger } from '../shared/logger.js'
@@ -47,7 +48,7 @@ export function createMetadataService(apiKey: string, model: string): MetadataSe
   return {
     async extract(content: string): Promise<ExtractedMetadata> {
       try {
-        const response = await client.chat.completions.create({
+        const response = await recordAiCall('metadata', model, () => client.chat.completions.create({
           model,
           response_format: { type: 'json_object' },
           messages: [
@@ -56,7 +57,7 @@ export function createMetadataService(apiKey: string, model: string): MetadataSe
           ],
           temperature: 0.3,
           max_tokens: 300,
-        })
+        }, distillationUsage.getStore() ? { maxRetries: 0 } : undefined))
 
         const raw = response.choices[0]?.message?.content
         if (!raw) {

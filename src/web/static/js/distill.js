@@ -86,6 +86,12 @@ export async function loadDistillationStatus() {
       el.innerHTML = '<span class="running">Distilling...</span>';
       return;
     }
+    if (data.retry_jobs && data.retry_jobs.length) {
+      var blocked = data.retry_jobs.filter(j => j.blocked).length;
+      var due = data.retry_jobs.filter(j => !j.blocked).map(j => j.next_attempt_at).sort()[0];
+      el.textContent = 'Retained jobs: ' + data.retry_jobs.length + '; blocked: ' + blocked + (due ? '; next retry: ' + new Date(due).toLocaleString() : '');
+      return;
+    }
     if (data.last_run) {
       var ago = timeAgo(data.last_run.created_at);
       el.textContent = 'Last run: ' + ago + ', ' + data.last_run.thoughts_created + ' thoughts';

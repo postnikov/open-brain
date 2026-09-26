@@ -13,12 +13,14 @@ export function createDistillationScheduler(
   distillationService: DistillationService,
   schedule: string,
   enabled: boolean,
+  retryPollMs = 60_000,
 ): DistillationScheduler {
   let task: cron.ScheduledTask | null = null
+  let retryTimer: ReturnType<typeof setInterval> | undefined
 
   return {
     start() {
-      if (!enabled) {
+      if (!enabled || process.env.OPEN_BRAIN_MAINTENANCE === '1') {
         logger.info('Distillation scheduler disabled by config')
         return
       }
@@ -37,10 +39,14 @@ export function createDistillationScheduler(
         }
       })
 
+      retryTimer = setInterval(() => {
+        if (!distillationService.isRunning()) void distillationService.run('retry').catch(() => logger.error('Durable retry failed; input retained'))
+      }, retryPollMs)
       logger.info({ schedule }, 'Distillation scheduler started')
     },
 
     stop() {
+      clearInterval(retryTimer)
       if (task) {
         task.stop()
         task = null

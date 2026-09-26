@@ -1,3 +1,4 @@
+import { recordAiCall, distillationUsage } from '../distillation/usage.js'
 import OpenAI from 'openai'
 import { logger } from '../shared/logger.js'
 import { EmbeddingError } from '../shared/errors.js'
@@ -12,10 +13,10 @@ export function createEmbeddingService(apiKey: string, model: string): Embedding
   return {
     async embed(text: string): Promise<readonly number[]> {
       try {
-        const response = await client.embeddings.create({
+        const response = await recordAiCall('embedding', model, () => client.embeddings.create({
           model,
           input: text,
-        })
+        }, distillationUsage.getStore() ? { maxRetries: 0 } : undefined))
 
         const embedding = response.data[0]?.embedding
         if (!embedding) {
