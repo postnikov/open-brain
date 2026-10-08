@@ -42,6 +42,8 @@ The primary unit. Each thought gets:
 - **Embedding** (text-embedding-3-small, 1536d) for semantic search
 - **Auto-extracted metadata** (gpt-4o-mini) — title, tags, topics, content type, sentiment
 - **Content hash** for deduplication across all sources
+- **Source reference** (mandatory): file path, URL, commit or session it came from; an unknown origin is stored as `unattributed:<source>`, never left empty
+- **Tier**: `hot` (opened often), `pointer` (a short thought that points to its source) or `source` (a full copy of a source document)
 
 Search works by meaning, not keywords. Cross-language: a Russian query finds English notes and vice versa.
 
@@ -65,6 +67,13 @@ capture → review → strengthen or let go
 - **Epistemic status** — mark as hypothesis, conviction, fact, outdated, or question
 - **Compost** — soft-delete with a 30-day grace period before permanent removal
 - **Review** — revisit thoughts from N days ago: still true? evolved? let go?
+- **Supersede, never overwrite** — new text is a new thought that replaces the old one (`supersedes`); the old one stays, hidden from search, and can be restored. Merging duplicates marks one as replaced instead of deleting it
+- **Validity end** — `valid_to` hides a thought after a date (e.g. a rule for one cohort)
+- **Consolidation** — a periodic job (no AI calls) promotes often-opened thoughts to `hot`, cools them back after a month of silence, and marks distilled contradictions as `supersede-candidate` for a human to decide
+
+### Two-step recall
+
+`brain_recall` returns pointers only — id, title, date, type, tier, source reference, status — so an agent can choose without paying for every full text. `brain_open(ids)` then returns the text of the chosen thoughts plus whether the source file still exists or has changed since it was stored. The file is canon; memory is a lead to it.
 
 ## Web UI
 
@@ -88,12 +97,14 @@ Every thought card supports inline editing (with re-embedding), weight control, 
 
 ## MCP Tools
 
-10 tools available in Claude Desktop, Cursor, and any MCP client:
+12 tools available in Claude Desktop, Cursor, and any MCP client:
 
 | Tool | Description | AI Cost |
 |------|-------------|---------|
-| `brain_save` | Capture thought with auto-embedding + metadata | ~$0.0001 |
-| `brain_search` | Semantic search with filters | ~$0.00005 |
+| `brain_save` | Capture thought with source ref, optional `supersedes` / `valid_to` | ~$0.0001 |
+| `brain_recall` | Step 1: pointers only, no text (default 8, max 10) | ~$0.00002 |
+| `brain_open` | Step 2: full text of chosen ids + source state | free |
+| `brain_search` | Legacy full-text semantic search with filters | ~$0.00005 |
 | `brain_recent` | Latest thoughts | free |
 | `brain_related` | Find similar thoughts by ID (uses stored embedding) | free |
 | `brain_stats` | Database statistics | free |

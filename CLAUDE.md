@@ -79,3 +79,13 @@ npm test
 - `distillation_ai_calls` records intent and observed usage for extraction, embedding and metadata, including invalid responses; lost responses stay unknown. Successful log totals cover known job costs across retries. No promise of exact billing reconciliation after a crash.
 - `OPEN_BRAIN_TEST_PG_BIN=<bin> npm run test:p0` and `npm run test:distillation-release` are green gates on isolated real PostgreSQL + fake AI. The release command requires the binary path; the mixed-failure assertion is never inverted or skipped. See `docs/operations.md` for semantics and rollback.
 - Historical legacy stream blocks cannot be automatically deleted on old `distilled_at` evidence. Retained job snapshots/outcomes have no automatic pruning. Their retention/release needs a separate decision, not a destructive cleanup workaround.
+
+## Memory tiers and two-step recall (2026-10-08)
+
+- Consilium on agent memory (vault `200 Projects/Open-Brain/2026-09-28 Консилиум …`) + Max's answers 2026-10-08: vault is the source, Open-Brain is cache + pointers; classification at consolidation; no ontology; recall hook only for `run-teammate` workers; closed contours via hook skip-list for now.
+- Storage: `ops/sql/memory-tiers.sql`, rollback `memory-tiers-rollback.sql`, operator `ops/memory-db.mjs` (explicit `--production` / `--rehearsal-socket`, unknown args fatal). Runbook and incident note: `docs/operations.md`.
+- Nothing is overwritten: `createSuperseding` / `unsupersede` in `src/repository/thoughts.ts`; the PUT content edit and duplicate merge create replacement marks. Default reads use the `LIVE_SQL` predicate (not superseded, not expired); `includeInactive` opts out. Explicit deletion (`brain_delete`, "keep one", compost cleanup) is unchanged.
+- Recall: `src/memory/recall.ts` (pointers / open), `src/memory/source.ts` (source file live/changed, booleans only). MCP `brain_recall` / `brain_open`; REST `GET /api/recall`, `POST /api/open`, `POST /api/thoughts/:id/unsupersede`. Tier consolidation runs in `server-hardened.ts` on start and every `memory.tier_refresh_hours`, paused by maintenance.
+- Tests: `src/memory/memory.test.ts` (real PostgreSQL with `OPEN_BRAIN_TEST_PG_BIN`). The P0-3 replay gate now also runs on the memory-tiers schema.
+- Open: the worker recall hook lives in `~/.claude/scripts/run-teammate` (stage 3); Codex snippet and facade must pass `source_ref` before `memory.require_source_ref=true` (stage 4).
+

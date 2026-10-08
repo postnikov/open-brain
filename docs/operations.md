@@ -304,3 +304,50 @@ cron/retry/cleanup disabled and manual/CLI distillation refused. No DB rewind, s
 DROP, thought deletion, token change or legacy HTTP restart. The stdio maintenance
 wrapper sets the same maintenance flag. The old HTTP rollback manifest may reject
 its now-changed plist; use the P0-3 maintenance rollback first.
+
+## Memory tiers and two-step recall (2026-10-08)
+
+Schema: `ops/sql/memory-tiers.sql` (additive, idempotent, caller-owned transaction) adds
+`tier`, `supersedes`/`superseded_by`/`superseded_at`/`supersede_reason`, `valid_to`,
+`open_count`/`last_opened_at`, and a validated `CHECK` that `source_ref` is non-empty. Legacy
+NULL references are filled with recognisable markers only: distilled thoughts from
+`distillation_log` → `{"distillation_run_id": …, "legacy": true}`, the rest →
+`unattributed:<source>`. `tier` is `text`, not `varchar`: PostgreSQL deparses a varchar
+`IN (...)` check differently after dump/restore and the backup drill would report a mismatch.
+Startup fails closed (`bootstrapServices`) until the constraint exists and is validated.
+
+Operator tool `ops/memory-db.mjs` prints counts/hashes only and requires an explicit target
+for every mutation: `--production` or `--rehearsal-socket <dir>` (a restored scratch cluster).
+Unknown arguments are fatal: in zsh an unquoted `$S="--rehearsal-socket dir"` is one argument,
+and before this guard such a "rehearsal" silently ran against production (incident 2026-10-08,
+reversible, see the task report).
+
+Rollout (as executed 2026-10-08):
+
+```sh
+node scripts/backup/cli.mjs backup && node scripts/backup/cli.mjs restore
+# rehearse on the restored cluster: start it with pg_ctl, then
+node ops/memory-db.mjs migrate --rehearsal-socket "<cluster>/socket"
+node ops/memory-db.mjs migrate --production
+node ops/memory-db.mjs repair-paths --vault "<vault root>" --evidence ~/.open-brain/rollback/<dir>/paths.json --production        # dry run
+node ops/memory-db.mjs repair-paths --vault "<vault root>" --evidence ~/.open-brain/rollback/<dir>/paths.json --apply --production
+launchctl kickstart -k "gui/$(id -u)/com.open-brain.server"
+```
+
+`migrate` checks that table row counts and a fingerprint of every thought's text, title,
+tags, dates and weight are unchanged. `repair-paths` re-points imported vault copies whose
+file moved: unique file name, or name plus identical content; ambiguous and missing files are
+left as they are. Evidence (old → new, private 0600) is written before the update.
+
+Rollback, newest first: `restore-paths --evidence <file> --production` (only rows still holding
+the repaired value), then `rollback --production` (`memory-tiers-rollback.sql` clears only the
+migration's own markers and drops the two checks; columns stay and old code ignores them),
+then revert the code and `kickstart`. Supersede marks made after rollout survive a rollback in
+their columns but are invisible to old code. Full restore: the pre-change backup.
+
+Config `memory.*` (defaults in `src/config/defaults.ts`): `require_source_ref` (false until
+the Codex snippet and the facade pass a reference; `brain_save` then answers with a warning
+and stores `unattributed:<source>`), recall limit/threshold/hot boost, and the tier policy.
+Vault copies are no longer imported: `index-obsidian.ts` refuses to run unless
+`OPEN_BRAIN_ALLOW_VAULT_COPY=1` (vault = source of truth, Max 2026-10-08).
+
