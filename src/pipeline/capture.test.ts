@@ -31,6 +31,14 @@ function thoughtFromInput(input: CreateThoughtInput): Thought {
     createdAt: new Date(),
     thoughtAt: input.thoughtAt ?? null,
     updatedAt: null,
+    tier: 'pointer',
+    supersedes: null,
+    supersededBy: null,
+    supersededAt: null,
+    supersedeReason: null,
+    validTo: input.validTo ?? null,
+    openCount: 0,
+    lastOpenedAt: null,
   }
 }
 
@@ -110,5 +118,22 @@ describe('createCapturePipeline', () => {
     create.mockRejectedValueOnce(new Error('db down'))
 
     await expect(pipeline.capture({ content: 'hello', source: 'cli' })).rejects.toThrow('db down')
+  })
+
+  it('stores a missing source_ref as an explicit unattributed marker, never NULL', async () => {
+    const { pipeline, create } = buildPipeline()
+    await pipeline.capture({ content: 'hello', source: 'codex' })
+    await pipeline.capture({ content: 'hello', source: 'codex', sourceRef: '   ' })
+    expect(create.mock.calls.map(([input]) => input.sourceRef)).toEqual(['unattributed:codex', 'unattributed:codex'])
+  })
+
+  it('routes an explicit supersedes through the atomic replacement, not a plain insert', async () => {
+    const create = vi.fn(async (input: CreateThoughtInput) => thoughtFromInput(input))
+    const createSuperseding = vi.fn(async (input: CreateThoughtInput) => thoughtFromInput(input))
+    const pipeline = createCapturePipeline({ embed: vi.fn(async () => EMBEDDING) }, { extract: vi.fn(async () => METADATA) },
+      { create, createSuperseding } as unknown as ThoughtsRepository)
+    await pipeline.capture({ content: 'v2', source: 'cli', sourceRef: 'session:x', supersedes: 'old-id', supersedeReason: 'changed' })
+    expect(create).not.toHaveBeenCalled()
+    expect(createSuperseding).toHaveBeenCalledWith(expect.objectContaining({ content: 'v2', sourceRef: 'session:x' }), { supersedes: 'old-id', reason: 'changed' })
   })
 })

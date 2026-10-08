@@ -16,6 +16,16 @@ export interface CaptureInput {
   readonly tags?: readonly string[]
   readonly thoughtAt?: Date
   readonly sourceRef?: string
+  readonly validTo?: Date
+  /** Explicit replacement: the new thought supersedes this id (never inferred). */
+  readonly supersedes?: string
+  readonly supersedeReason?: string
+}
+
+/** source_ref is mandatory in storage; an unknown origin is stated, not invented. */
+export function resolveSourceRef(input: Pick<CaptureInput, 'sourceRef' | 'source'>): { readonly ref: string; readonly attributed: boolean } {
+  const ref = input.sourceRef?.trim()
+  return ref ? { ref, attributed: true } : { ref: `unattributed:${input.source}`, attributed: false }
 }
 
 export interface CaptureResult {
@@ -53,14 +63,18 @@ export function createCapturePipeline(
       embedding,
       thoughtAt: input.thoughtAt,
       contentHash: contentHash(input.content),
-      sourceRef: input.sourceRef,
+      sourceRef: resolveSourceRef(input).ref,
+      validTo: input.validTo,
     }
   }
   return {
     prepare,
     async capture(input: CaptureInput): Promise<CaptureResult> {
       logger.info({ source: input.source, contentLength: input.content.length }, 'Capturing thought')
-      const thought = await repository.create(await prepare(input))
+      const prepared = await prepare(input)
+      const thought = input.supersedes
+        ? await repository.createSuperseding(prepared, { supersedes: input.supersedes, reason: input.supersedeReason })
+        : await repository.create(prepared)
 
       logger.info({ id: thought.id, title: thought.title }, 'Thought captured')
       return { thought }

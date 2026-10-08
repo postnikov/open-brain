@@ -28,6 +28,7 @@ export async function startFixture() {
       const migration=await readFile(new URL('../db/migrate.ts',import.meta.url),'utf8')
       for(const match of migration.matchAll(/const [A-Z0-9_]+_SQL = `([\s\S]*?)`/g)) await pool.query(match[1]!)
       await pool.query(await readFile(new URL('../../ops/sql/distillation-retry.sql',import.meta.url),'utf8'))
+      await pool.query(`BEGIN;\n${await readFile(new URL('../../ops/sql/memory-tiers.sql',import.meta.url),'utf8')}\nCOMMIT;`)
       const db=drizzle(pool,{schema}), store=new RetryStore(pool,{baseDelayMs:0,maxDelayMs:0,maxAttempts:8})
       return {pool,store,stream:createStreamRepository(db,30),logs:createDistillationRepository(db)}
     },

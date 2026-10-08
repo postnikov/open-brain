@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { clampFloat, clampInt, isValidUuid, json, parseJsonBody, thoughtToJson, EPISTEMIC_STATUSES, UUID_RE, type Route } from '../http.js'
 
@@ -5,6 +6,11 @@ const updateThoughtSchema = z.object({
   content: z.string().min(1).max(50000).optional(),
   title: z.string().max(500).optional(),
   tags: z.array(z.string().max(100)).max(50).optional(),
+})
+
+const openSchema = z.object({
+  ids: z.array(z.string().regex(UUID_RE)).min(1).max(10),
+  recall_id: z.string().regex(UUID_RE).optional(),
 })
 
 const weightSchema = z.object({
@@ -25,6 +31,29 @@ const batchSchema = z.object({
 })
 
 export const thoughtRoutes: readonly Route[] = [
+  {
+    // Two-step recall, step 1: pointers without text (used by the worker recall hook).
+    method: 'GET',
+    pattern: '/api/recall',
+    handler: async ({ res, url, services }) => {
+      const query = url.searchParams.get('q')
+      if (!query) {
+        json(res, { error: 'Missing query parameter "q"' }, 400)
+        return
+      }
+      const limit = url.searchParams.has('limit') ? clampInt(url.searchParams.get('limit'), services.config.memory.recall_limit, 1, 10) : undefined
+      json(res, await services.recallService.recall(query, { limit, includeInactive: url.searchParams.get('include_inactive') === 'true' }))
+    },
+  },
+  {
+    // Step 2: full text for chosen ids; counts the open.
+    method: 'POST',
+    pattern: '/api/open',
+    handler: async ({ req, res, services }) => {
+      const body = openSchema.parse(await parseJsonBody(req))
+      json(res, await services.recallService.open(body.ids, body.recall_id))
+    },
+  },
   {
     method: 'GET',
     pattern: '/api/search',
@@ -262,6 +291,24 @@ export const thoughtRoutes: readonly Route[] = [
     },
   },
   {
+    // Undo a replacement mark (merge, edit or explicit supersede); the newer thought stays.
+    method: 'POST',
+    pattern: '/api/thoughts/:id/unsupersede',
+    handler: async ({ res, params, services }) => {
+      const { id } = params
+      if (!id || !isValidUuid(id)) {
+        json(res, { error: 'Invalid thought ID' }, 400)
+        return
+      }
+      const restored = await services.repository.unsupersede(id)
+      if (!restored) {
+        json(res, { error: 'Thought not found' }, 404)
+        return
+      }
+      json(res, { id, restored: true })
+    },
+  },
+  {
     method: 'DELETE',
     pattern: '/api/thoughts/:id',
     handler: async ({ res, params, services }) => {
@@ -301,16 +348,39 @@ export const thoughtRoutes: readonly Route[] = [
         return
       }
 
-      let newEmbedding: readonly number[] | undefined
+      // Nothing is overwritten: new text becomes a new version that supersedes this one.
       if (body.content && body.content !== existing.content) {
-        newEmbedding = await services.embeddingService.embed(body.content)
+        if (existing.supersededBy) {
+          json(res, { error: `Thought is superseded by ${existing.supersededBy}; edit the newer version` }, 409)
+          return
+        }
+        const embedding = await services.embeddingService.embed(body.content)
+        const version = await services.repository.createSuperseding({
+          content: body.content,
+          source: existing.source,
+          sourceRef: existing.sourceRef ?? `unattributed:${existing.source}`,
+          contentType: existing.contentType,
+          title: body.title ?? existing.title ?? undefined,
+          tags: body.tags ?? existing.tags ?? undefined,
+          topics: existing.topics ?? undefined,
+          sentiment: existing.sentiment ?? undefined,
+          embedding,
+          thoughtAt: existing.thoughtAt ?? undefined,
+          contentHash: createHash('sha256').update(body.content.trim()).digest('hex').slice(0, 16),
+          validTo: existing.validTo ?? undefined,
+        }, { supersedes: id, reason: 'edited in UI' })
+        json(res, {
+          ...thoughtToJson(version),
+          updated_at: version.updatedAt?.toISOString() ?? null,
+          re_embedded: true,
+          previous_id: id,
+        })
+        return
       }
 
       const updated = await services.repository.update(id, {
-        content: body.content,
         title: body.title,
         tags: body.tags,
-        embedding: newEmbedding,
       })
 
       if (!updated) {
@@ -321,7 +391,7 @@ export const thoughtRoutes: readonly Route[] = [
       json(res, {
         ...thoughtToJson(updated),
         updated_at: updated.updatedAt?.toISOString() ?? null,
-        re_embedded: newEmbedding !== undefined,
+        re_embedded: false,
       })
     },
   },

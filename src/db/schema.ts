@@ -44,6 +44,16 @@ export const thoughts = pgTable(
     obsidianPath: text('obsidian_path'),
     obsidianHash: text('obsidian_hash'),
     contentHash: varchar('content_hash', { length: 16 }),
+
+    // Memory tiers (ops/sql/memory-tiers.sql): nothing is overwritten, replaced thoughts are marked.
+    tier: text('tier').notNull().default('pointer'),
+    supersedes: uuid('supersedes'),
+    supersededBy: uuid('superseded_by'),
+    supersededAt: timestamp('superseded_at', { withTimezone: true }),
+    supersedeReason: text('supersede_reason'),
+    validTo: timestamp('valid_to', { withTimezone: true }),
+    openCount: integer('open_count').notNull().default(0),
+    lastOpenedAt: timestamp('last_opened_at', { withTimezone: true }),
   },
   (table) => [
     index('idx_thoughts_tags').using('gin', table.tags),

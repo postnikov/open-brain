@@ -42,6 +42,11 @@ async function findMarkdownFiles(dir: string): Promise<string[]> {
 }
 
 async function main(): Promise<void> {
+  // Max 2026-10-08 (memory plan q2): the vault is the source of truth, Open-Brain keeps
+  // pointers to it; full copies of notes are no longer imported.
+  if (process.env.OPEN_BRAIN_ALLOW_VAULT_COPY !== '1') {
+    throw new Error('Vault copy import is disabled: the vault is the source of truth (set OPEN_BRAIN_ALLOW_VAULT_COPY=1 to override deliberately)')
+  }
   const config = await loadConfig()
   const databaseUrl = getDatabaseUrl(config)
   const apiKey = process.env.OPENAI_API_KEY

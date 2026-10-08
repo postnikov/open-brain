@@ -142,7 +142,9 @@ export async function saveEdit(id) {
   try {
     var r = await fetch(API + '/thoughts/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: nc, title: nt, tags: ntg }) });
     var data = await r.json(); if (!r.ok) throw new Error(data.error || 'Failed');
-    if (data.re_embedded) { se.textContent = 'Re-embedded!'; await new Promise(function(resolve) { setTimeout(resolve, 600); }); }
+    // New text is saved as a new version that replaces the old one: the card follows it.
+    if (data.previous_id) card.dataset.id = data.id;
+    if (data.re_embedded) { se.textContent = data.previous_id ? 'Saved as new version' : 'Re-embedded!'; await new Promise(function(resolve) { setTimeout(resolve, 600); }); }
     finishEdit(card, data);
   } catch(err) { sb.disabled = false; se.textContent = 'Error: ' + err.message; }
 }

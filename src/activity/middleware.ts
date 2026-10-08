@@ -18,6 +18,9 @@ function summarizeInput(toolName: string, args: Record<string, unknown>): string
   if (args.min_similarity) parts.push(`min_sim: ${args.min_similarity}`)
   if (args.tags) parts.push(`tags: ${JSON.stringify(args.tags)}`)
   if (args.old_tag) parts.push(`"${args.old_tag}" → "${args.new_tag}"`)
+  if (Array.isArray(args.ids)) parts.push(`ids: ${args.ids.map((id) => String(id).slice(0, 8)).join(',')}`)
+  if (args.recall_id) parts.push(`recall: ${String(args.recall_id).slice(0, 8)}`)
+  if (args.supersedes) parts.push(`supersedes: ${String(args.supersedes).slice(0, 8)}`)
 
   return parts.length > 0 ? parts.join(', ') : toolName
 }
@@ -28,6 +31,9 @@ function summarizeOutput(text: string): string {
     const parts: string[] = []
 
     if (data.total !== undefined) parts.push(`${data.total} results`)
+    if (data.recall_id) parts.push(`recall: ${String(data.recall_id).slice(0, 8)}`)
+    if (Array.isArray(data.pointers)) parts.push(`ids: ${data.pointers.map((p: { id: string }) => p.id.slice(0, 8)).join(',')}`)
+    if (Array.isArray(data.thoughts) && data.recall_id !== undefined) parts.push(`opened: ${data.thoughts.length}`)
     if (data.id) parts.push(`id: ${String(data.id).slice(0, 8)}...`)
     if (data.title) parts.push(`"${truncate(data.title, 40)}"`)
     if (data.deleted) parts.push('deleted')

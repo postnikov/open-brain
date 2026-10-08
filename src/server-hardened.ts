@@ -22,8 +22,15 @@ async function main() {
   const cleanupEnabled = process.env.OPEN_BRAIN_DISABLE_CLEANUP !== '1' && process.env.OPEN_BRAIN_MAINTENANCE !== '1'
   const timer = cleanupEnabled ? setInterval(() => { void cleanup().catch(() => console.error('Cleanup failed')) }, 60 * 60 * 1000) : undefined
   if (cleanupEnabled && services.config.stream.cleanup_on_startup) await cleanup()
+  // Nightly-style consolidation of memory tiers: no AI calls, no deletion, paused by maintenance.
+  const memory = services.config.memory
+  const refreshTiers = () => services.repository.refreshTiers({ hotMinOpens: memory.hot_min_opens, hotWindowDays: memory.hot_window_days, coolAfterDays: memory.cool_after_days })
+    .then((r) => { if (r.promoted || r.demoted || r.candidatesTagged) console.error(`Memory tiers: +hot ${r.promoted}, -hot ${r.demoted}, candidates ${r.candidatesTagged}`) })
+    .catch(() => console.error('Memory tier refresh failed'))
+  const tierTimer = process.env.OPEN_BRAIN_MAINTENANCE !== '1' ? setInterval(() => { void refreshTiers() }, memory.tier_refresh_hours * 60 * 60 * 1000) : undefined
+  if (tierTimer) void refreshTiers()
   const shutdown = async () => {
-    clearInterval(timer); distillationScheduler.stop(); await closeSessions()
+    clearInterval(timer); clearInterval(tierTimer); distillationScheduler.stop(); await closeSessions()
     await new Promise<void>(resolve => http.close(() => resolve()))
     await services.pool.end()
   }

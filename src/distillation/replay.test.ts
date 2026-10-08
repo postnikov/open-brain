@@ -39,6 +39,8 @@ describe.skipIf(!bin)('durable distillation replay — real PostgreSQL, fake AI'
     const migration = await readFile(new URL('../db/migrate.ts', import.meta.url), 'utf8')
     for (const match of migration.matchAll(/const [A-Z0-9_]+_SQL = `([\s\S]*?)`/g)) await pool.query(match[1]!)
     await pool.query(await readFile(new URL('../../ops/sql/distillation-retry.sql', import.meta.url), 'utf8'))
+    // Production schema: the P0-3 gate must also hold with mandatory source_ref and memory tiers.
+    await pool.query(`BEGIN;\n${await readFile(new URL('../../ops/sql/memory-tiers.sql', import.meta.url), 'utf8')}\nCOMMIT;`)
     const ids = []
     for (let i = 0; i < count; i++) ids.push((await pool.query("INSERT INTO stream(session_id,block_number,content,expires_at) VALUES($1,$2,$3,now()-interval '1 day') RETURNING id", [database, i, content])).rows[0].id as string)
     const store = new RetryStore(pool, { baseDelayMs: 0, maxDelayMs: 0, maxAttempts: 8 })

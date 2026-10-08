@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AppServices } from '../bootstrap.js'
+import { memoryStatus } from '../repository/types.js'
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -92,8 +93,13 @@ export function isValidUuid(id: string): boolean {
   return UUID_RE.test(id)
 }
 
-export function thoughtToJson(t: { id: string; content: string; title: string | null; tags: readonly string[] | null; source: string; sourceRef: string | null; contentType: string; weight: number; epistemicStatus: string | null; createdAt: Date | null; compostedAt?: Date | null }) {
+export function thoughtToJson(t: { id: string; content: string; title: string | null; tags: readonly string[] | null; source: string; sourceRef: string | null; contentType: string; weight: number; epistemicStatus: string | null; createdAt: Date | null; compostedAt?: Date | null; tier?: string; supersedes?: string | null; supersededBy?: string | null; validTo?: Date | null }) {
   return {
+    tier: t.tier ?? 'pointer',
+    status: memoryStatus({ supersededBy: t.supersededBy ?? null, validTo: t.validTo ?? null }),
+    supersedes: t.supersedes ?? null,
+    superseded_by: t.supersededBy ?? null,
+    valid_to: t.validTo?.toISOString() ?? null,
     id: t.id,
     content: t.content,
     title: t.title,

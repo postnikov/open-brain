@@ -78,6 +78,8 @@ export function createImportService(
     await pipeline.capture({
       content: truncated,
       source,
+      // Uploaded files have no stable location; vault notes point back to their path.
+      sourceRef: obsidianPath ?? `upload:${name}`,
       tags,
     })
 

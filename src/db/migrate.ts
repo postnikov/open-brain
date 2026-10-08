@@ -171,6 +171,8 @@ async function migrate(): Promise<void> {
     logger.info('Distillation log table created')
 
     await client.query(await readFile(new URL('../../ops/sql/distillation-retry.sql', import.meta.url), 'utf8'))
+    await client.query(`BEGIN;\n${await readFile(new URL('../../ops/sql/memory-tiers.sql', import.meta.url), 'utf8')}\nCOMMIT;`)
+    logger.info('Memory tiers applied (tier, supersede chain, valid_to, mandatory source_ref)')
     logger.info('Migrations complete')
   } catch (error) {
     logger.error({ err: error }, 'Migration failed')

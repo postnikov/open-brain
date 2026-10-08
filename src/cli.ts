@@ -15,22 +15,44 @@ program
   .option('-s, --source <source>', 'Source', 'cli')
   .option('-t, --type <type>', 'Content type')
   .option('--tags <tags>', 'Comma-separated tags')
-  .action(async (content: string, opts: { source: string; type?: string; tags?: string }) => {
-    const { pipeline, pool } = await bootstrapServices()
+  .option('-r, --source-ref <ref>', 'Where it comes from: file path, URL, commit, session:<id>')
+  .option('--supersedes <id>', 'ID of the thought this one replaces')
+  .option('--reason <reason>', 'Why the older thought is replaced')
+  .action(async (content: string, opts: { source: string; type?: string; tags?: string; sourceRef?: string; supersedes?: string; reason?: string }) => {
+    const { pipeline, pool, config } = await bootstrapServices()
 
     try {
+      if (!opts.sourceRef && config.memory.require_source_ref) throw new Error('--source-ref is required by config (memory.require_source_ref)')
       const { thought } = await pipeline.capture({
         content,
         source: opts.source,
+        sourceRef: opts.sourceRef,
         contentType: opts.type,
         tags: opts.tags ? opts.tags.split(',').map((t) => t.trim()) : undefined,
+        supersedes: opts.supersedes,
+        supersedeReason: opts.reason,
       })
+      process.stdout.write(`Source: ${thought.sourceRef}\n`)
 
       process.stdout.write(`Saved: ${thought.title}\n`)
       process.stdout.write(`ID: ${thought.id}\n`)
       process.stdout.write(`Tags: ${thought.tags?.join(', ') ?? 'none'}\n`)
       process.stdout.write(`Topics: ${thought.topics?.join(', ') ?? 'none'}\n`)
       process.stdout.write(`Type: ${thought.contentType}\n`)
+    } finally {
+      await pool.end()
+    }
+  })
+
+program
+  .command('unsupersede')
+  .description('Undo a replacement mark: the thought becomes visible again (the newer one stays)')
+  .argument('<id>', 'Thought ID')
+  .action(async (id: string) => {
+    const { repository, pool } = await bootstrapServices()
+    try {
+      const restored = await repository.unsupersede(id)
+      process.stdout.write(restored ? `Restored: ${restored.title ?? 'Untitled'} (${id})\n` : `Not found: ${id}\n`)
     } finally {
       await pool.end()
     }

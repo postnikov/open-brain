@@ -57,7 +57,7 @@ export async function dupDismiss(idA, idB, btn) {
 }
 
 export async function dupMerge(keepId, removeId) {
-  if (!await modalConfirm('Merge tags/topics into kept thought and delete the other?', { title: 'Merge Thoughts', okLabel: 'Merge' })) return;
+  if (!await modalConfirm('Merge tags/topics into kept thought? The other is kept as replaced and hidden from search.', { title: 'Merge Thoughts', okLabel: 'Merge' })) return;
   try {
     var r = await fetch(API + '/duplicates/merge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keep_id: keepId, remove_id: removeId }) });
     if (!r.ok) { var d = await r.json(); throw new Error(d.error || 'Failed'); }

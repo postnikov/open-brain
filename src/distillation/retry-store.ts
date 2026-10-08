@@ -109,10 +109,11 @@ export class RetryStore {
       if (!row) throw new Error('Unknown item')
       if (row.thought_id) return row.thought_id // Includes tombstones for deliberately deleted thoughts.
       if (prepared.content !== row.payload.content || prepared.source !== 'distillation') throw new Error('Prepared payload differs from saved extraction')
+      // source_ref is mandatory (memory tiers): a distilled thought always points at least at its job.
       const result = await c.query(`INSERT INTO thoughts(content,source,content_type,source_ref,title,tags,topics,sentiment,embedding,thought_at,content_hash,distillation_item_id)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::vector,$10,$11,$12)
         ON CONFLICT (distillation_item_id) WHERE distillation_item_id IS NOT NULL DO NOTHING RETURNING id`,
-      [prepared.content, prepared.source, prepared.contentType ?? 'thought', prepared.sourceRef ?? null, prepared.title ?? null, prepared.tags ?? null, prepared.topics ?? null, prepared.sentiment ?? null, prepared.embedding ? JSON.stringify(prepared.embedding) : null, prepared.thoughtAt ?? null, prepared.contentHash ?? null, item.id])
+      [prepared.content, prepared.source, prepared.contentType ?? 'thought', prepared.sourceRef || JSON.stringify({ distillation_run_id: claim.id }), prepared.title ?? null, prepared.tags ?? null, prepared.topics ?? null, prepared.sentiment ?? null, prepared.embedding ? JSON.stringify(prepared.embedding) : null, prepared.thoughtAt ?? null, prepared.contentHash ?? null, item.id])
       const thoughtId = result.rows[0]?.id ?? (await c.query('SELECT id FROM thoughts WHERE distillation_item_id=$1', [item.id])).rows[0]?.id
       if (!thoughtId) throw new Error('Missing idempotent outcome')
       await c.query('UPDATE distillation_retry_items SET thought_id=$2 WHERE id=$1', [item.id, thoughtId])

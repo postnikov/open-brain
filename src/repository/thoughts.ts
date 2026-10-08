@@ -1,7 +1,7 @@
-import { sql, desc, eq, and, gte, lte, isNull, type SQL } from 'drizzle-orm'
+import { sql, desc, eq, and, gte, lte, isNull, inArray, type SQL } from 'drizzle-orm'
 import { thoughts, dismissedPairs } from '../db/schema.js'
 import type { Database } from '../db/connection.js'
-import type { Thought, CreateThoughtInput, UpdateThoughtInput, SearchFilters, SearchResult, ThoughtStats, DuplicatePair, OrphanTag, ThoughtsRepository } from './types.js'
+import { memoryStatus, type Thought, type CreateThoughtInput, type UpdateThoughtInput, type SearchFilters, type SearchResult, type ThoughtStats, type DuplicatePair, type OrphanTag, type ThoughtsRepository, type MemoryTier, type RecallPointer, type SupersedeInput, type TierPolicy, type TierRefresh } from './types.js'
 import { DatabaseError } from '../shared/errors.js'
 
 function toThought(row: typeof thoughts.$inferSelect): Thought {
@@ -21,8 +21,22 @@ function toThought(row: typeof thoughts.$inferSelect): Thought {
     createdAt: row.createdAt,
     thoughtAt: row.thoughtAt,
     updatedAt: row.updatedAt,
+    tier: row.tier as MemoryTier,
+    supersedes: row.supersedes,
+    supersededBy: row.supersededBy,
+    supersededAt: row.supersededAt,
+    supersedeReason: row.supersedeReason,
+    validTo: row.validTo,
+    openCount: row.openCount,
+    lastOpenedAt: row.lastOpenedAt,
   }
 }
+
+const date = (v: unknown): Date | null => (v ? new Date(v as string) : null)
+
+/** Default visibility: not replaced and still valid. Raw SQL callers use the same predicate. */
+const LIVE_SQL = sql.raw('superseded_by IS NULL AND (valid_to IS NULL OR valid_to > NOW())')
+const liveFor = (alias: string) => sql.raw(`${alias}.superseded_by IS NULL AND (${alias}.valid_to IS NULL OR ${alias}.valid_to > NOW())`)
 
 function rawRowToThought(row: Record<string, unknown>): Thought {
   return {
@@ -41,8 +55,17 @@ function rawRowToThought(row: Record<string, unknown>): Thought {
     createdAt: row.created_at ? new Date(row.created_at as string) : null,
     thoughtAt: row.thought_at ? new Date(row.thought_at as string) : null,
     updatedAt: row.updated_at ? new Date(row.updated_at as string) : null,
+    tier: ((row.tier as string) ?? 'pointer') as MemoryTier,
+    supersedes: (row.supersedes as string | null) ?? null,
+    supersededBy: (row.superseded_by as string | null) ?? null,
+    supersededAt: date(row.superseded_at),
+    supersedeReason: (row.supersede_reason as string | null) ?? null,
+    validTo: date(row.valid_to),
+    openCount: Number(row.open_count ?? 0),
+    lastOpenedAt: date(row.last_opened_at),
   }
 }
+
 
 function buildFilters(filters?: SearchFilters): SQL[] {
   const conditions: SQL[] = []
@@ -69,6 +92,9 @@ function buildFilters(filters?: SearchFilters): SQL[] {
   if (filters?.epistemicStatus) {
     conditions.push(eq(thoughts.epistemicStatus, filters.epistemicStatus))
   }
+  if (!filters?.includeInactive) {
+    conditions.push(LIVE_SQL)
+  }
 
   return conditions
 }
@@ -91,6 +117,7 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
             embedding: input.embedding ? [...input.embedding] : null,
             thoughtAt: input.thoughtAt ?? null,
             contentHash: input.contentHash ?? null,
+            validTo: input.validTo ?? null,
           })
           .returning()
 
@@ -102,6 +129,127 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
       } catch (error) {
         if (error instanceof DatabaseError) throw error
         throw new DatabaseError('Failed to create thought', error)
+      }
+    },
+
+    async createSuperseding(input: CreateThoughtInput, supersede: SupersedeInput): Promise<Thought> {
+      try {
+        return await db.transaction(async (tx) => {
+          // Row lock: two concurrent replacements of the same thought cannot both win.
+          const old = await tx.execute(sql`SELECT id, superseded_by FROM thoughts WHERE id = ${supersede.supersedes} FOR UPDATE`)
+          const target = old.rows[0]
+          if (!target) throw new DatabaseError(`Thought ${supersede.supersedes} not found`)
+          if (target.superseded_by) throw new DatabaseError(`Thought ${supersede.supersedes} is already superseded by ${String(target.superseded_by)}; supersede the newer one`)
+          const [row] = await tx.insert(thoughts).values({
+            content: input.content,
+            source: input.source,
+            contentType: input.contentType ?? 'thought',
+            sourceRef: input.sourceRef ?? null,
+            title: input.title ?? null,
+            tags: input.tags ? [...input.tags] : null,
+            topics: input.topics ? [...input.topics] : null,
+            sentiment: input.sentiment ?? null,
+            embedding: input.embedding ? [...input.embedding] : null,
+            thoughtAt: input.thoughtAt ?? null,
+            contentHash: input.contentHash ?? null,
+            validTo: input.validTo ?? null,
+            supersedes: supersede.supersedes,
+          }).returning()
+          if (!row) throw new DatabaseError('Insert returned no rows')
+          await tx.update(thoughts).set({
+            supersededBy: row.id,
+            supersededAt: sql`NOW()`,
+            supersedeReason: supersede.reason ?? null,
+            updatedAt: sql`NOW()`,
+          }).where(eq(thoughts.id, supersede.supersedes))
+          return toThought(row)
+        })
+      } catch (error) {
+        if (error instanceof DatabaseError) throw error
+        throw new DatabaseError('Failed to create superseding thought', error)
+      }
+    },
+
+    async unsupersede(id: string): Promise<Thought | null> {
+      try {
+        const [row] = await db.update(thoughts)
+          .set({ supersededBy: null, supersededAt: null, supersedeReason: null, updatedAt: sql`NOW()` })
+          .where(eq(thoughts.id, id))
+          .returning()
+        return row ? toThought(row) : null
+      } catch (error) {
+        throw new DatabaseError('Failed to restore superseded thought', error)
+      }
+    },
+
+    async recall(embedding, limit, minSimilarity, hotBoost, includeInactive = false): Promise<readonly RecallPointer[]> {
+      try {
+        const vectorStr = `[${[...embedding].join(',')}]`
+        const live = includeInactive ? sql`TRUE` : LIVE_SQL
+        // Pointers only: the text column is never selected here.
+        const rows = await db.execute(sql`
+          SELECT id, title, thought_at, created_at, content_type, tier, source, source_ref, superseded_by, valid_to,
+            (1 - (embedding <=> ${vectorStr}::vector)) * COALESCE(weight, 1.0) AS similarity,
+            (1 - (embedding <=> ${vectorStr}::vector)) * COALESCE(weight, 1.0) + CASE WHEN tier = 'hot' THEN ${hotBoost}::float8 ELSE 0 END AS ranked
+          FROM thoughts
+          WHERE composted_at IS NULL AND embedding IS NOT NULL AND ${live}
+            AND (1 - (embedding <=> ${vectorStr}::vector)) * COALESCE(weight, 1.0) >= ${minSimilarity}
+          ORDER BY ranked DESC
+          LIMIT ${limit}
+        `)
+        return rows.rows.map((row: Record<string, unknown>) => ({
+          id: row.id as string,
+          title: row.title as string | null,
+          date: date(row.thought_at) ?? date(row.created_at),
+          contentType: (row.content_type as string) ?? 'thought',
+          tier: row.tier as MemoryTier,
+          source: row.source as string,
+          sourceRef: row.source_ref as string,
+          status: memoryStatus({ supersededBy: row.superseded_by as string | null, validTo: date(row.valid_to) }),
+          score: Number(row.ranked),
+        }))
+      } catch (error) {
+        throw new DatabaseError('Failed to recall thoughts', error)
+      }
+    },
+
+    async open(ids: readonly string[]): Promise<readonly Thought[]> {
+      if (ids.length === 0) return []
+      try {
+        const rows = await db.update(thoughts)
+          .set({ openCount: sql`${thoughts.openCount} + 1`, lastOpenedAt: sql`NOW()` })
+          .where(inArray(thoughts.id, [...ids]))
+          .returning()
+        const byId = new Map(rows.map((r) => [r.id, toThought(r)]))
+        return ids.flatMap((id) => byId.get(id) ?? [])
+      } catch (error) {
+        throw new DatabaseError('Failed to open thoughts', error)
+      }
+    },
+
+    async refreshTiers(policy: TierPolicy): Promise<TierRefresh> {
+      try {
+        // Nightly consolidation (Max 2026-10-08, q3): tier and replacement candidates are
+        // decided here, never at write time. Source copies keep their tier.
+        const promoted = await db.execute(sql`
+          UPDATE thoughts SET tier = 'hot'
+          WHERE tier = 'pointer' AND open_count >= ${policy.hotMinOpens}
+            AND last_opened_at > NOW() - INTERVAL '1 day' * ${policy.hotWindowDays}
+          RETURNING id`)
+        const demoted = await db.execute(sql`
+          UPDATE thoughts SET tier = 'pointer'
+          WHERE tier = 'hot' AND (last_opened_at IS NULL OR last_opened_at < NOW() - INTERVAL '1 day' * ${policy.coolAfterDays})
+          RETURNING id`)
+        // A distilled "contradiction" may replace an older thought. Only a person or an explicit
+        // supersede call decides that; consolidation just marks the candidate for review.
+        const tagged = await db.execute(sql`
+          UPDATE thoughts SET tags = array_append(COALESCE(tags, ARRAY[]::text[]), 'supersede-candidate')
+          WHERE content_type = 'contradiction' AND supersedes IS NULL AND superseded_by IS NULL
+            AND NOT ('supersede-candidate' = ANY(COALESCE(tags, ARRAY[]::text[])))
+          RETURNING id`)
+        return { promoted: promoted.rows.length, demoted: demoted.rows.length, candidatesTagged: tagged.rows.length }
+      } catch (error) {
+        throw new DatabaseError('Failed to refresh memory tiers', error)
       }
     },
 
@@ -174,6 +322,7 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
             AND t.embedding IS NOT NULL
             AND source.embedding IS NOT NULL
             AND t.composted_at IS NULL
+            AND ${liveFor('t')}
           ORDER BY similarity DESC
           LIMIT ${limit}
         `)
@@ -192,7 +341,7 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
         const now = new Date()
         const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
         const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-        const activeFilter = sql`WHERE composted_at IS NULL`
+        const activeFilter = sql`WHERE composted_at IS NULL AND ${LIVE_SQL}`
 
         const [totalResult, sourceRows, typeRows, last7Result, last30Result] = await Promise.all([
           db.execute(sql`SELECT count(*) as count FROM thoughts ${activeFilter}`),
@@ -229,7 +378,7 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
         const rows = await db.execute(sql`
           SELECT tag, count(*) as count
           FROM thoughts, unnest(tags) as tag
-          WHERE composted_at IS NULL
+          WHERE composted_at IS NULL AND ${LIVE_SQL}
           GROUP BY tag
           ORDER BY count DESC
         `)
@@ -251,7 +400,7 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
           FROM (
             SELECT tag, (array_agg(id))[1] AS thought_id
             FROM thoughts, unnest(tags) AS tag
-            WHERE composted_at IS NULL
+            WHERE composted_at IS NULL AND ${LIVE_SQL}
             GROUP BY tag
             HAVING count(*) = 1
           ) o
@@ -296,10 +445,8 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
       try {
         const updates = {
           updatedAt: sql`NOW()`,
-          ...(input.content !== undefined && { content: input.content }),
           ...(input.title !== undefined && { title: input.title }),
           ...(input.tags !== undefined && { tags: [...input.tags] }),
-          ...(input.embedding !== undefined && { embedding: [...input.embedding] }),
           ...(input.weight !== undefined && { weight: input.weight }),
           ...(input.epistemicStatus !== undefined && { epistemicStatus: input.epistemicStatus }),
         }
@@ -401,7 +548,7 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
         const rows = await db
           .select()
           .from(thoughts)
-          .where(and(eq(thoughts.epistemicStatus, status), isNull(thoughts.compostedAt)))
+          .where(and(eq(thoughts.epistemicStatus, status), isNull(thoughts.compostedAt), LIVE_SQL))
           .orderBy(desc(thoughts.createdAt))
           .limit(limit)
         return rows.map(toThought)
@@ -421,6 +568,7 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
           .from(thoughts)
           .where(and(
             isNull(thoughts.compostedAt),
+            LIVE_SQL,
             gte(thoughts.createdAt, from),
             lte(thoughts.createdAt, to),
           ))
@@ -444,7 +592,7 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
           SELECT *,
             (1 - (${thoughts.embedding} <=> ${vectorStr}::vector)) * COALESCE(weight, 1.0) as similarity
           FROM thoughts
-          WHERE composted_at IS NULL
+          WHERE composted_at IS NULL AND ${LIVE_SQL}
             AND (1 - (${thoughts.embedding} <=> ${vectorStr}::vector)) * COALESCE(weight, 1.0) >= ${minSimilarity}
           ORDER BY created_at ASC
           LIMIT ${limit}
@@ -482,22 +630,13 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
       try {
         const rows = await db.execute(sql`
           SELECT
-            a.id as a_id, a.content as a_content, a.content_type as a_content_type,
-            a.source as a_source, a.source_ref as a_source_ref, a.title as a_title,
-            a.tags as a_tags, a.topics as a_topics, a.sentiment as a_sentiment,
-            a.weight as a_weight, a.composted_at as a_composted_at,
-            a.epistemic_status as a_epistemic_status,
-            a.created_at as a_created_at, a.thought_at as a_thought_at, a.updated_at as a_updated_at,
-            b.id as b_id, b.content as b_content, b.content_type as b_content_type,
-            b.source as b_source, b.source_ref as b_source_ref, b.title as b_title,
-            b.tags as b_tags, b.topics as b_topics, b.sentiment as b_sentiment,
-            b.weight as b_weight, b.composted_at as b_composted_at,
-            b.epistemic_status as b_epistemic_status,
-            b.created_at as b_created_at, b.thought_at as b_thought_at, b.updated_at as b_updated_at,
+            to_jsonb(a) - 'embedding' AS a,
+            to_jsonb(b) - 'embedding' AS b,
             (1 - (a.embedding <=> b.embedding)) as similarity
           FROM thoughts a
           JOIN thoughts b ON a.id < b.id
           WHERE a.composted_at IS NULL AND b.composted_at IS NULL
+            AND ${liveFor('a')} AND ${liveFor('b')}
             AND a.embedding IS NOT NULL AND b.embedding IS NOT NULL
             AND (1 - (a.embedding <=> b.embedding)) > ${minSimilarity}
             AND NOT EXISTS (
@@ -509,40 +648,8 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
         `)
 
         return rows.rows.map((row: Record<string, unknown>) => ({
-          thoughtA: {
-            id: row.a_id as string,
-            content: row.a_content as string,
-            contentType: (row.a_content_type as string) ?? 'thought',
-            source: row.a_source as string,
-            sourceRef: row.a_source_ref as string | null,
-            title: row.a_title as string | null,
-            tags: row.a_tags as string[] | null,
-            topics: row.a_topics as string[] | null,
-            sentiment: row.a_sentiment as string | null,
-            weight: (row.a_weight as number) ?? 1.0,
-            compostedAt: row.a_composted_at ? new Date(row.a_composted_at as string) : null,
-            epistemicStatus: row.a_epistemic_status as string | null,
-            createdAt: row.a_created_at ? new Date(row.a_created_at as string) : null,
-            thoughtAt: row.a_thought_at ? new Date(row.a_thought_at as string) : null,
-            updatedAt: row.a_updated_at ? new Date(row.a_updated_at as string) : null,
-          },
-          thoughtB: {
-            id: row.b_id as string,
-            content: row.b_content as string,
-            contentType: (row.b_content_type as string) ?? 'thought',
-            source: row.b_source as string,
-            sourceRef: row.b_source_ref as string | null,
-            title: row.b_title as string | null,
-            tags: row.b_tags as string[] | null,
-            topics: row.b_topics as string[] | null,
-            sentiment: row.b_sentiment as string | null,
-            weight: (row.b_weight as number) ?? 1.0,
-            compostedAt: row.b_composted_at ? new Date(row.b_composted_at as string) : null,
-            epistemicStatus: row.b_epistemic_status as string | null,
-            createdAt: row.b_created_at ? new Date(row.b_created_at as string) : null,
-            thoughtAt: row.b_thought_at ? new Date(row.b_thought_at as string) : null,
-            updatedAt: row.b_updated_at ? new Date(row.b_updated_at as string) : null,
-          },
+          thoughtA: rawRowToThought(row.a as Record<string, unknown>),
+          thoughtB: rawRowToThought(row.b as Record<string, unknown>),
           similarity: row.similarity as number,
         }))
       } catch (error) {
@@ -570,19 +677,22 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
           ...(removeRow.topics ?? []),
         ])]
 
-        const [updated] = await db
-          .update(thoughts)
-          .set({
-            tags: mergedTags.length > 0 ? mergedTags : null,
-            topics: mergedTopics.length > 0 ? mergedTopics : null,
-            updatedAt: sql`NOW()`,
-          })
-          .where(eq(thoughts.id, keepId))
-          .returning()
-
-        await db.delete(thoughts).where(eq(thoughts.id, removeId))
-
-        return updated ? toThought(updated) : null
+        // Merge never deletes: the removed duplicate is marked as replaced by the kept one.
+        return await db.transaction(async (tx) => {
+          const [updated] = await tx
+            .update(thoughts)
+            .set({
+              tags: mergedTags.length > 0 ? mergedTags : null,
+              topics: mergedTopics.length > 0 ? mergedTopics : null,
+              updatedAt: sql`NOW()`,
+            })
+            .where(eq(thoughts.id, keepId))
+            .returning()
+          await tx.update(thoughts)
+            .set({ supersededBy: keepId, supersededAt: sql`NOW()`, supersedeReason: 'merged duplicate', updatedAt: sql`NOW()` })
+            .where(eq(thoughts.id, removeId))
+          return updated ? toThought(updated) : null
+        })
       } catch (error) {
         throw new DatabaseError('Failed to merge thoughts', error)
       }

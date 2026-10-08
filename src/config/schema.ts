@@ -36,12 +36,27 @@ export const distillationConfigSchema = z.object({
   min_block_length: z.number().int().min(0).max(10000).default(50),
 })
 
+// Two-step recall and tiering (memory consilium 2026-09-28, Max answers 2026-10-08).
+export const memoryConfigSchema = z.object({
+  // false: a missing source_ref is stored as `unattributed:<source>` and reported back;
+  // true: brain_save rejects it. Flip after clients (Codex snippet, facade) pass it.
+  require_source_ref: z.boolean().default(false),
+  recall_limit: z.number().int().min(1).max(10).default(8),
+  recall_min_similarity: z.number().min(0).max(1).default(0.35),
+  hot_boost: z.number().min(0).max(0.5).default(0.05),
+  hot_min_opens: z.number().int().min(1).default(2),
+  hot_window_days: z.number().int().min(1).default(14),
+  cool_after_days: z.number().int().min(1).default(30),
+  tier_refresh_hours: z.number().int().min(1).max(168).default(24),
+})
+
 export const configSchema = z.object({
   database: databaseConfigSchema.default({}),
   openai: openaiConfigSchema.default({}),
   capture: captureConfigSchema.default({}),
   stream: streamConfigSchema.default({}),
   distillation: distillationConfigSchema.default({}),
+  memory: memoryConfigSchema.default({}),
 })
 
 export type AppConfig = z.infer<typeof configSchema>

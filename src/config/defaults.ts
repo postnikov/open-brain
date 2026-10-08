@@ -32,4 +32,14 @@ export const DEFAULT_CONFIG: AppConfig = {
     max_blocks_per_run: 200,
     min_block_length: 50,
   },
+  memory: {
+    require_source_ref: false,
+    recall_limit: 8,
+    recall_min_similarity: 0.35,
+    hot_boost: 0.05,
+    hot_min_opens: 2,
+    hot_window_days: 14,
+    cool_after_days: 30,
+    tier_refresh_hours: 24,
+  },
 }

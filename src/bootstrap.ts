@@ -12,6 +12,7 @@ import { createStreamRepository } from './stream/repository.js'
 import { createDistillationRepository } from './distillation/repository.js'
 import { createDistillationService } from './distillation/service.js'
 import { registerTools } from './tools/register.js'
+import { createRecallService, type RecallService } from './memory/recall.js'
 import type { CapturePipeline } from './pipeline/capture.js'
 import type { EmbeddingService } from './pipeline/embeddings.js'
 import type { ThoughtsRepository } from './repository/types.js'
@@ -38,6 +39,7 @@ export interface AppServices {
   readonly streamRepository: StreamRepository
   readonly distillationService: DistillationService
   readonly distillationRepo: DistillationRepository
+  readonly recallService: RecallService
   readonly config: AppConfig
   readonly pool: pg.Pool
   readonly distillationScheduler?: DistillationSchedulerInfo
@@ -62,6 +64,14 @@ export async function bootstrapServices(): Promise<AppServices> {
       if (!guard.rows[0]?.enabled) throw new Error('Missing stream guard')
     } catch { await pool.end(); throw new Error('Durable distillation migration required before startup') }
   }
+  // Memory tiers are read by every query, maintenance included: fail closed before serving.
+  try {
+    const ready = await pool.query(`SELECT
+      EXISTS(SELECT 1 FROM pg_constraint WHERE conname='thoughts_source_ref_required' AND convalidated) AS source_ref,
+      EXISTS(SELECT 1 FROM pg_constraint WHERE conname='thoughts_tier_check') AS tier`)
+    await pool.query('SELECT tier,supersedes,superseded_by,superseded_at,supersede_reason,valid_to,open_count,last_opened_at FROM thoughts LIMIT 0')
+    if (!ready.rows[0]?.source_ref || !ready.rows[0]?.tier) throw new Error('Missing memory constraints')
+  } catch { await pool.end(); throw new Error('Memory tiers migration required before startup (ops/memory-db.mjs migrate)') }
   const repository = createThoughtsRepository(db)
   const activityLogger = createActivityLogger(db)
   const embeddingService = createEmbeddingService(apiKey, config.openai.embedding_model)
@@ -86,7 +96,9 @@ export async function bootstrapServices(): Promise<AppServices> {
     new RetryStore(pool, { baseDelayMs: config.distillation.retry_base_ms, maxDelayMs: config.distillation.retry_max_ms, maxAttempts: config.distillation.retry_max_attempts }),
   )
 
-  return { pipeline, embeddingService, repository, activityLogger, importService, streamRepository, distillationService, distillationRepo, config, pool }
+  const recallService = createRecallService(embeddingService, repository, config.memory)
+
+  return { pipeline, embeddingService, repository, activityLogger, importService, streamRepository, distillationService, distillationRepo, recallService, config, pool }
 }
 
 export function createMcpServer(services: AppServices, getClientInfo: () => ClientInfo): McpServer {
@@ -95,7 +107,7 @@ export function createMcpServer(services: AppServices, getClientInfo: () => Clie
     version: '0.1.0',
   })
 
-  registerTools(server, services.pipeline, services.embeddingService, services.repository, services.activityLogger, getClientInfo, services.streamRepository)
+  registerTools(server, services.pipeline, services.embeddingService, services.repository, services.activityLogger, getClientInfo, services.streamRepository, services.recallService, services.config?.memory)
 
   return server
 }
