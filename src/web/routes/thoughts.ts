@@ -42,7 +42,10 @@ export const thoughtRoutes: readonly Route[] = [
         return
       }
       const limit = url.searchParams.has('limit') ? clampInt(url.searchParams.get('limit'), services.config.memory.recall_limit, 1, 10) : undefined
-      json(res, await services.recallService.recall(query, { limit, includeInactive: url.searchParams.get('include_inactive') === 'true' }))
+      const minSimilarity = url.searchParams.has('min_similarity')
+        ? clampFloat(url.searchParams.get('min_similarity'), services.config.memory.recall_min_similarity, 0, 1)
+        : undefined
+      json(res, await services.recallService.recall(query, { limit, minSimilarity, includeInactive: url.searchParams.get('include_inactive') === 'true' }))
     },
   },
   {
