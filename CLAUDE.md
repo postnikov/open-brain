@@ -87,5 +87,6 @@ npm test
 - Nothing is overwritten: `createSuperseding` / `unsupersede` in `src/repository/thoughts.ts`; the PUT content edit and duplicate merge create replacement marks. Default reads use the `LIVE_SQL` predicate (not superseded, not expired); `includeInactive` opts out. Explicit deletion (`brain_delete`, "keep one", compost cleanup) is unchanged.
 - Recall: `src/memory/recall.ts` (pointers / open), `src/memory/source.ts` (source file live/changed, booleans only). MCP `brain_recall` / `brain_open`; REST `GET /api/recall`, `POST /api/open`, `POST /api/thoughts/:id/unsupersede`. Tier consolidation runs in `server-hardened.ts` on start and every `memory.tier_refresh_hours`, paused by maintenance.
 - Tests: `src/memory/memory.test.ts` (real PostgreSQL with `OPEN_BRAIN_TEST_PG_BIN`). The P0-3 replay gate now also runs on the memory-tiers schema.
-- Open: the worker recall hook lives in `~/.claude/scripts/run-teammate` (stage 3); Codex snippet and facade must pass `source_ref` before `memory.require_source_ref=true` (stage 4).
+- Worker recall hook (stage 3, 2026-10-08): `~/.claude/scripts/brain_recall_tail.py` + `brain-recall.json`, called by `run-teammate`; it reads `GET /api/recall` with `limit` and `min_similarity` and puts pointers as the last prompt section. Pilot metrics: `~/Library/Logs/brain-recall.log` (recall_id per job) joined with `activity_log` rows of `brain_open` carrying the same recall_id.
+- Open: facade must pass `source_ref` before `memory.require_source_ref=true` (stage 4; the Codex snippet is already updated).
 
