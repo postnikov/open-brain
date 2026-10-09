@@ -9,3 +9,4 @@ dist/
 !src/web/static/**/*.js
 docs/PRD*.md
 docs/open-brain-roadmap.md
+scratchpad/
