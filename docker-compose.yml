@@ -1,3 +1,7 @@
+# PostgreSQL + pgvector for local use. The app runs on the host with the
+# authenticated server (`npm run server:hardened`), see README "Quick Start".
+# The authenticated server listens on 127.0.0.1 only, so it cannot be published
+# from a container port; the legacy unauthenticated server is not shipped here.
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -8,28 +12,13 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Loopback only: the database is not reachable from other machines.
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U open_brain"]
       interval: 5s
       timeout: 5s
       retries: 5
-
-  app:
-    build: .
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://open_brain:open_brain_local@db:5432/open_brain
-      PORT: "3100"
-    env_file:
-      - .env
-    ports:
-      - "3100:3100"
-    command: >
-      sh -c "node --import tsx/esm src/db/migrate.ts &&
-             node --import tsx/esm src/server.ts"
 
 volumes:
   pgdata:

@@ -715,14 +715,18 @@ PRIMARY KEY: `(id_a, id_b)`. Хранит пары дубликатов, кот�
 | Режим | Entry point | Транспорт | Для чего |
 |-------|------------|-----------|----------|
 | stdio | `src/index.ts` | StdioServerTransport | Claude Desktop |
-| HTTP | `src/server.ts` | StreamableHTTPServerTransport | Web UI, REST API, удалённый доступ |
+| HTTP | `src/server-hardened.ts` (`npm run server:hardened`) | StreamableHTTPServerTransport | Web UI, REST API, MCP по HTTP на этой машине |
+
+HTTP-сервер слушает только `127.0.0.1`, принимает Host/Origin только `127.0.0.1:<port>` и `localhost:<port>` и требует `Authorization: Bearer <token>` на всём, кроме пустой оболочки UI (`/`, `/static/…`). Токен — ровно один источник: `OPEN_BRAIN_HTTP_TOKEN_FILE` (абсолютный путь к owner-only файлу, 64 hex-символа) или `OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE` (login Keychain на macOS). Нет токена или он кривой — сервер не стартует. Импорт папки Obsidian по HTTP закрыт (403), файлы — только загрузкой. Подробности и настройка клиентов — `docs/operations.md`.
+
+`src/server.ts` (`npm run server`) — legacy-вход без авторизации (`/health` открыт, CORS `*`); не использовать, в том числе как откат.
 
 ### Endpoints HTTP-сервера
 
 | Метод | URL | Описание |
 |-------|-----|----------|
 | GET | `/` | Web UI |
-| GET | `/health` | Healthcheck (`{status, sessions}`) |
+| GET | `/health` | Healthcheck (`{status, sessions}`), тоже с токеном |
 | GET | `/api/*` | REST API (см. раздел REST API выше) |
 | POST | `/mcp` | MCP JSON-RPC (новая сессия) |
 | GET | `/mcp` | MCP SSE stream (с Mcp-Session-Id) |

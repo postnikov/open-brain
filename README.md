@@ -12,27 +12,40 @@ The system also respects that not every thought is permanent. Ideas have a lifec
 
 ## Quick Start
 
-### Docker
+Requires Node.js 20+ and PostgreSQL 14+ with [pgvector](https://github.com/pgvector/pgvector) — your own, or the database-only Docker Compose file.
 
 ```bash
 git clone https://github.com/postnikov/open-brain.git
 cd open-brain
+```
+
+**1. Database.** Either run `./setup.sh` against your local PostgreSQL (it creates the user, the database, the `vector` extension and runs migrations), or use Docker for the database only:
+
+```bash
 cp .env.example .env    # add your OPENAI_API_KEY
-docker compose up
+docker compose up -d    # PostgreSQL + pgvector on 127.0.0.1:5432
+docker compose exec db psql -U open_brain -d open_brain -c "CREATE EXTENSION IF NOT EXISTS vector;"
+npm ci
+npm run migrate
 ```
 
-### Manual
-
-Requires Node.js 20+, PostgreSQL 14+ with [pgvector](https://github.com/pgvector/pgvector).
+**2. Access token.** The HTTP server requires a bearer token on every request except the empty UI shell. Create one owner-only file with 32 random bytes as hex and point `.env` at it:
 
 ```bash
-git clone https://github.com/postnikov/open-brain.git
-cd open-brain
-./setup.sh
-npm run server
+mkdir -p ~/.open-brain
+(umask 077 && openssl rand -hex 32 > ~/.open-brain/http-token)
+echo "OPEN_BRAIN_HTTP_TOKEN_FILE=$HOME/.open-brain/http-token" >> .env
 ```
 
-Open [http://localhost:3100](http://localhost:3100)
+**3. Start the authenticated server.**
+
+```bash
+npm run server:hardened
+```
+
+Open [http://127.0.0.1:3100](http://127.0.0.1:3100) and paste the token (`cat ~/.open-brain/http-token`); the UI keeps it in page memory only. The server listens on IPv4 loopback only and accepts only `127.0.0.1:3100` / `localhost:3100` as Host and Origin. Missing or invalid token configuration stops the server before it touches the database.
+
+Do not use `npm run server` (`src/server.ts`): it is the legacy entry point with no authentication, `/health` open and CORS `*`. On macOS the token can live in the login Keychain instead of a file (`OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE`) — see [docs/operations.md](docs/operations.md).
 
 ## Core Concepts
 
@@ -133,9 +146,12 @@ All tool calls are logged to the Activity feed.
 ### HTTP mode (Cursor, multiple clients)
 
 ```bash
-npm run server
-# MCP endpoint: http://localhost:3100/mcp (Streamable HTTP)
+npm run server:hardened
+# MCP endpoint: http://127.0.0.1:3100/mcp (Streamable HTTP)
+# every request: Authorization: Bearer <token>
 ```
+
+Prefer a client that reads the header from a helper command at connect time over pasting the token into a config file; the Claude Code / Codex setup is in [docs/operations.md](docs/operations.md).
 
 ## CLI
 
@@ -260,6 +276,8 @@ brain delete <uuid>
 | `OPENAI_API_KEY` | Yes | — |
 | `DATABASE_URL` | No | `postgresql://open_brain:open_brain_local@localhost:5432/open_brain` |
 | `PORT` | No | `3100` |
+| `OPEN_BRAIN_HTTP_TOKEN_FILE` | One of the two, for `server:hardened` | — absolute path to an owner-only file with 64 hex chars |
+| `OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE` | One of the two, for `server:hardened` (macOS) | — login Keychain service name |
 
 **Config** (`~/.open-brain/config.json`) — auto-created with defaults:
 
