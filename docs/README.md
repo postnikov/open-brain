@@ -138,6 +138,11 @@ brain save "Мысль из чата" --source telegram
 | `-s, --source` | Источник (cli, telegram, api, obsidian) | `cli` |
 | `-t, --type` | Тип (thought, note, idea, question, observation, decision) | авто |
 | `--tags` | Теги через запятую | авто |
+| `-r, --source-ref` | Откуда мысль: путь к файлу, URL, коммит, `session:<id>` | нет → `unattributed:<source>` |
+| `--supersedes` | ID мысли, которую эта заменяет (старая скрывается из поиска, не удаляется) | — |
+| `--reason` | Почему старая мысль заменена | — |
+
+`valid_to` (срок годности мысли) из CLI не задаётся — только через MCP `brain_save`.
 
 При сохранении происходит:
 1. Генерация embedding (OpenAI, text-embedding-3-small)
@@ -224,17 +229,18 @@ brain status
 
 Показывает: Stream (блоки, pending/distilled/pinned, expiring), Distillation (последний прогон, время, стоимость, next cron), Thoughts (total, 7d/30d, by source).
 
-### Удаление
+### Удаление и снятие замены
 
 ```bash
 brain delete <UUID>
+brain unsupersede <UUID>   # снять отметку «заменена»: мысль снова видна, новая версия остаётся
 ```
 
 ---
 
 ## MCP Tools — интеграция с Claude
 
-Open Brain предоставляет 10 MCP tools, доступных из Claude Desktop (stdio) и через HTTP:
+Open Brain предоставляет 12 MCP tools, доступных из Claude Desktop (stdio) и через HTTP:
 
 ### brain_save
 Сохранить мысль с автоматическим извлечением метаданных.
@@ -246,6 +252,27 @@ Open Brain предоставляет 10 MCP tools, доступных из Clau
 | `content_type` | string | нет | thought, note, idea, question, observation, decision |
 | `tags` | string[] | нет | Ручные теги (если пусто — извлекаются автоматически) |
 | `thought_at` | string | нет | Когда возникла мысль (ISO дата) |
+| `source_ref` | string | по политике | Откуда мысль: путь к файлу, URL, коммит, `session:<id>`; без него — `unattributed:<source>` с предупреждением, а при `memory.require_source_ref=true` — ошибка |
+| `supersedes` | UUID | нет | ID мысли, которую эта заменяет |
+| `supersede_reason` | string | нет | Почему старая заменена (до 500 символов) |
+| `valid_to` | string | нет | ISO-дата, после которой мысль скрывается из поиска |
+
+### brain_recall
+Шаг 1 двухшагового вспоминания: только указатели (id, title, дата, тип, tier, source_ref, статус), без текста. Заменённые и просроченные скрыты, если не `include_inactive`.
+
+| Параметр | Тип | Обязательный | Описание |
+|----------|-----|-------------|----------|
+| `query` | string | да | Что нужно вспомнить |
+| `limit` | number | нет (из конфига) | Максимум указателей (1-10) |
+| `include_inactive` | boolean | нет (false) | Показать и заменённые/просроченные |
+
+### brain_open
+Шаг 2: полный текст выбранных мыслей (до 10), source_ref, жив ли исходный файл и не изменился ли он, цепочка замен.
+
+| Параметр | Тип | Обязательный | Описание |
+|----------|-----|-------------|----------|
+| `ids` | UUID[] | да | ID из `brain_recall` (1-10) |
+| `recall_id` | UUID | нет | `recall_id` из `brain_recall` — для трассировки |
 
 ### brain_search
 Семантический поиск по всем мыслям.
@@ -344,13 +371,13 @@ Open Brain предоставляет 10 MCP tools, доступных из Clau
 - **Compost** — мысли, которые ты отпускаешь (растворяются через 30 дней)
 - **Duplicates** — обнаружение и разрешение дубликатов (merge / keep / dismiss)
 - **Stream** — буфер захвата разговоров: сырые блоки для дистилляции, ссылки «→ thoughts» на дистиллированных блоках
-- **Import** — drag-and-drop загрузка файлов + сканер Obsidian vault с прогресс-баром
+- **Import** — drag-and-drop загрузка файлов (сканер папки Obsidian на авторизованном сервере выключен)
 - **Activity** — лента всех MCP tool calls: кто обратился, что спросил, что получил, latency
 - **Status** — дашборд здоровья: stream (блоки, истекающие), distillation (последний прогон, стоимость, конверсия), thoughts (total, 7/30 дней, по источникам)
 - **Distill Log** — история прогонов дистилляции: время, триггер, статус, созданные мысли (кликабельные), стоимость, ошибки
 
 Контроль на каждой карточке:
-- **Inline editing** — редактирование на месте с пересчётом эмбеддинга
+- **Inline editing** — правка текста сохраняет новую версию с `supersedes`, старая скрывается, но не удаляется; заголовок и теги правятся на месте
 - **Fade/Amplify** — управление весом мысли в поиске
 - **Epistemic status** — метки: hypothesis, conviction, fact, outdated, question
 - **Batch operations** — множественный выбор, массовые действия
@@ -362,13 +389,14 @@ Open Brain предоставляет 10 MCP tools, доступных из Clau
 
 ## REST API
 
-Все endpoints на `http://localhost:3100/api/`. CORS включён.
+Все endpoints на `http://127.0.0.1:3100/api/`, 41 маршрут. Нужен `Authorization: Bearer <token>`; Origin принимается только `http://127.0.0.1:3100` и `http://localhost:3100` (см. «HTTP-сервер и автозапуск»).
 
 ### Чтение
 
 | Метод | Endpoint | Описание |
 |-------|----------|----------|
 | GET | `/api/brain/status` | Сводный статус (stream + distillation + thoughts) |
+| GET | `/api/recall?q=query&limit=8&min_similarity=0.3` | Двухшаговое вспоминание, шаг 1: только указатели (`limit` ≤ 10, `include_inactive=true`) |
 | GET | `/api/search?q=query&limit=10` | Семантический поиск |
 | GET | `/api/recent?limit=20&source=obsidian` | Последние записи |
 | GET | `/api/timeline?q=topic&limit=30` | Хронологический поиск |
@@ -390,7 +418,9 @@ Open Brain предоставляет 10 MCP tools, доступных из Clau
 
 | Метод | Endpoint | Описание |
 |-------|----------|----------|
-| PUT | `/api/thoughts/:id` | Обновить мысль (пересчёт эмбеддинга) |
+| POST | `/api/open` | Шаг 2: полный текст по `{ids, recall_id?}` + состояние источника |
+| PUT | `/api/thoughts/:id` | Заголовок и теги — на месте; смена текста создаёт новую мысль с `supersedes` (в ответе `previous_id`) |
+| POST | `/api/thoughts/:id/unsupersede` | Снять отметку «заменена» (новая версия остаётся) |
 | DELETE | `/api/thoughts/:id` | Удалить мысль |
 | PATCH | `/api/thoughts/:id/weight` | Fade/Amplify (body: `{direction}`) |
 | PATCH | `/api/thoughts/:id/status` | Epistemic status (body: `{status}`) |
@@ -404,9 +434,9 @@ Open Brain предоставляет 10 MCP tools, доступных из Clau
 | POST | `/api/import/files` | Импорт файлов с генерацией эмбеддингов |
 | POST | `/api/stream` | Записать блок стрима |
 | PATCH | `/api/stream/:id/pin` | Закрепить/открепить блок |
-| DELETE | `/api/stream/:id` | Удалить блок стрима |
-| POST | `/api/import/obsidian/scan` | Сканирование Obsidian vault |
-| POST | `/api/import/obsidian/start` | Запуск импорта из vault |
+| DELETE | `/api/stream/:id` | Удалить блок стрима — только после завершённой durable-дистилляции, иначе БД отклоняет |
+| POST | `/api/import/obsidian/scan` | Сканирование Obsidian vault (только legacy-сервер; на `server:hardened` — 403) |
+| POST | `/api/import/obsidian/start` | Запуск импорта из vault (только legacy-сервер; на `server:hardened` — 403) |
 | POST | `/api/distillation/run` | Power Nap — ручной запуск дистилляции (409 если уже работает) |
 | GET | `/api/distillation/status` | Текущий статус (running, last_run) |
 | GET | `/api/distillation/log?limit=20` | Лог запусков дистилляции |
@@ -450,9 +480,11 @@ OpenClaw (Вайб-Демон) интегрирован с Open Brain через
 
 Импорт markdown-файлов из Obsidian vault в Open Brain.
 
+По умолчанию выключено: волт — источник правды, Open Brain хранит указатели на него, полные копии заметок больше не импортируются. Без `OPEN_BRAIN_ALLOW_VAULT_COPY=1` скрипт падает с ошибкой.
+
 ```bash
-# Индексировать папку Knowledge
-npm run index Knowledge
+# Индексировать папку Knowledge (осознанный обход)
+OPEN_BRAIN_ALLOW_VAULT_COPY=1 npm run index Knowledge
 
 # Индексировать другие папки
 npm run index Daily
@@ -462,11 +494,11 @@ npm run index Blog
 
 ### Как работает
 
-1. Сканирует `~/Kisadrakon/{folder}` рекурсивно на `.md` файлы
+1. Сканирует `{VAULT_PATH}/{folder}` рекурсивно на `.md` файлы (`VAULT_PATH` — константа в `src/scripts/index-obsidian.ts`)
 2. Пропускает файлы: `*.excalidraw.md`, `*_Index.md`, файлы < 20 символов
 3. Вычисляет SHA256-хеш контента для дедупликации
 4. Если хеш уже есть в базе — пропускает (файл не изменился)
-5. Если путь уже есть но хеш другой — обновляет (файл изменился)
+5. Если путь уже есть, но хеш другой, — удаляет старую мысль этого файла и вставляет новую (без `supersedes`)
 6. Параллельно генерирует embedding и метаданные (3 файла одновременно)
 7. Сохраняет с `source: 'obsidian'` и `obsidian_path`, `obsidian_hash`
 
@@ -499,20 +531,19 @@ npm run export:md
 ### Бэкап базы данных
 
 ```bash
-npm run backup
-# → ~/.open-brain/backups/open-brain-2026-03-04_0146.sql.gz
+npm run backup           # полный снимок
+npm run backup:check     # проверка последнего набора и его возраста
+npm run backup:restore   # учебное восстановление в отдельный scratch-кластер
 ```
 
-- Формат: `pg_dump` + gzip
-- Директория: `~/.open-brain/backups/`
-- Ротация: хранит последние 10 бэкапов, старые удаляются
+- Формат: `pg_dump --format=custom` (полная база: таблицы, индексы, расширения), плюс манифест с контрольной суммой и указатель `latest.json`
+- Директория и пороги: `~/.open-brain/backup.json` (или `OPEN_BRAIN_BACKUP_CONFIG`) — путь задаёт поле `directory`, отдельной директории по умолчанию нет
+- Ротации нет: старые снимки не удаляются автоматически
+- Скрипт читает подключение так же, как установленный launchd-сервер (plist, затем `.env`, затем `config.json`) — рассчитан на macOS
 
 ### Восстановление из бэкапа
 
-```bash
-gunzip -c ~/.open-brain/backups/open-brain-2026-03-04_0146.sql.gz \
-  | PGPASSWORD=open_brain_local psql -U open_brain -d open_brain
-```
+`npm run backup:restore` поднимает отдельный кластер PostgreSQL на Unix-сокете без TCP, восстанавливает туда последний снимок и сверяет таблицы, индексы и векторные запросы; на боевую базу он не пишет. Снимок — custom-формат, поэтому `gunzip | psql` его не поднимет; ручное восстановление — `pg_restore`. Runbook, расписание launchd и откат — `docs/operations.md`.
 
 ---
 
@@ -590,6 +621,14 @@ gunzip -c ~/.open-brain/backups/open-brain-2026-03-04_0146.sql.gz \
 | `content_hash` | VARCHAR(16) | SHA256 контента, первые 16 символов (дедупликация) |
 | `obsidian_path` | TEXT | Путь в vault (для Obsidian-файлов) |
 | `obsidian_hash` | TEXT | SHA256 контента Obsidian-файла (legacy) |
+| `tier` | TEXT | `hot` / `pointer` / `source`, default `pointer` |
+| `supersedes` | UUID | Какую мысль эта заменяет |
+| `superseded_by` | UUID | Какой мыслью эта заменена (заменённые скрыты из чтения по умолчанию) |
+| `superseded_at` | TIMESTAMPTZ | Когда заменена |
+| `supersede_reason` | TEXT | Почему заменена |
+| `valid_to` | TIMESTAMPTZ | После этой даты скрыта из поиска по умолчанию |
+| `open_count` | INTEGER | Сколько раз открыта через `brain_open` (default 0) |
+| `last_opened_at` | TIMESTAMPTZ | Когда открыта последний раз |
 
 ### Индексы
 
@@ -603,6 +642,11 @@ gunzip -c ~/.open-brain/backups/open-brain-2026-03-04_0146.sql.gz \
 | `idx_thoughts_composted` | B-tree (partial) | composted_at (WHERE NOT NULL) |
 | `idx_thoughts_epistemic` | B-tree (partial) | epistemic_status (WHERE NOT NULL) |
 | `idx_thoughts_content_hash` | B-tree (partial) | content_hash (WHERE NOT NULL) |
+| `idx_thoughts_live` | B-tree (partial) | created_at DESC (не заменена и не в компосте) |
+| `idx_thoughts_superseded_by` | B-tree (partial) | superseded_by (WHERE NOT NULL) |
+| `idx_thoughts_tier` | B-tree | tier |
+
+Новые столбцы и индексы ставит `ops/sql/memory-tiers.sql` (его же применяет `npm run migrate`), откат — `ops/sql/memory-tiers-rollback.sql`.
 
 ### Таблица `activity_log`
 
@@ -635,7 +679,7 @@ gunzip -c ~/.open-brain/backups/open-brain-2026-03-04_0146.sql.gz \
 | `distilled_at` | TIMESTAMPTZ | Когда дистиллирован в мысли |
 | `distillation_run_id` | UUID | ID прогона дистилляции |
 | `created_at` | TIMESTAMPTZ | Когда создан |
-| `expires_at` | TIMESTAMPTZ | Когда истекает (TTL, default 30 дней) |
+| `expires_at` | TIMESTAMPTZ | Когда истекает TTL (default 30 дней). Удаляется по TTL только блок, который прочитала завершённая durable-дистилляция; иначе блок остаётся |
 
 UNIQUE: `(session_id, block_number)`. GIN full-text index on content.
 
@@ -798,7 +842,8 @@ open-brain/
 │   └── README.md              # Эта документация
 ├── src/
 │   ├── index.ts               # MCP server (stdio) — для Claude Desktop
-│   ├── server.ts              # HTTP server — Web UI, REST API, MCP HTTP
+│   ├── server-hardened.ts     # HTTP server с токеном — Web UI, REST API, MCP HTTP
+│   ├── server.ts              # legacy HTTP server без авторизации — не использовать
 │   ├── cli.ts                 # CLI — команда brain
 │   ├── bootstrap.ts           # Инициализация сервисов
 │   ├── config/
@@ -831,18 +876,23 @@ open-brain/
 │   │   ├── repository.ts       # distillation_log CRUD
 │   │   ├── service.ts          # Основная логика дистилляции (LLM pipeline)
 │   │   └── scheduler.ts        # Cron-планировщик (node-cron)
+│   ├── memory/
+│   │   ├── recall.ts          # Двухшаговое вспоминание (указатели / open)
+│   │   └── source.ts          # Жив ли исходный файл, изменился ли
+│   ├── security/              # Токен, проверки Host/Origin, hardened-сервер
 │   ├── tools/
-│   │   └── register.ts        # Регистрация 10 MCP tools
+│   │   └── register.ts        # Регистрация 12 MCP tools
 │   ├── web/
-│   │   ├── ui.ts              # HTML Web UI (single page)
-│   │   └── api.ts             # REST API handlers
+│   │   ├── api.ts             # REST-диспетчер
+│   │   ├── routes/            # Обработчики REST по разделам
+│   │   └── static/            # Web UI: index.html, styles.css, js/
 │   ├── shared/
 │   │   ├── logger.ts          # Pino logger (stderr)
 │   │   └── errors.ts          # Классы ошибок
 │   └── scripts/
 │       ├── index-obsidian.ts   # Индексатор Obsidian vault
 │       ├── export.ts           # Экспорт JSON/Markdown
-│       └── backup.sh           # pg_dump бэкап
+│       └── backup.sh           # обёртка над scripts/backup/cli.mjs
 ├── package.json
 ├── tsconfig.json
 ├── drizzle.config.ts
@@ -855,17 +905,23 @@ open-brain/
 | Скрипт | Описание |
 |--------|----------|
 | `npm run dev` | Запуск MCP-сервера (stdio) |
-| `npm run server` | Запуск HTTP-сервера |
+| `npm run server:hardened` | Запуск HTTP-сервера с токеном |
+| `npm run server` | Legacy HTTP-сервер без авторизации — не использовать |
 | `npm run cli` | Запуск CLI |
 | `npm run migrate` | Миграции базы данных |
-| `npm run index` | Индексация Obsidian |
+| `npm run index` | Копия папки Obsidian в мысли — только с `OPEN_BRAIN_ALLOW_VAULT_COPY=1` |
 | `npm run export` | Экспорт в JSON |
 | `npm run export:md` | Экспорт в Markdown |
-| `npm run backup` | Бэкап базы данных |
+| `npm run backup` | Полный снимок базы (custom-формат, без ротации) |
+| `npm run backup:check` | Проверка последнего снимка и его возраста |
+| `npm run backup:restore` | Учебное восстановление в отдельный кластер |
 | `npm run build` | Компиляция TypeScript |
 | `npm run test` | Запуск тестов (vitest) |
-| `npm run test:api` | API smoke tests |
+| `npm run test:backup` | Гейты бэкапа (реальный PostgreSQL с `OPEN_BRAIN_TEST_PG_BIN`) |
+| `npm run test:p0` | Гейты durable-дистилляции (изолированный PostgreSQL) |
+| `npm run test:distillation-release` | Релизный гейт, нужен `OPEN_BRAIN_TEST_PG_BIN` |
+| `npm run test:api` | API smoke — ПИШЕТ и УДАЛЯЕТ реальные данные, не на проде |
 
 ---
 
-*Документация актуальна на 5 марта 2026. Версия: 0.1.0*
+*Документация сверена с кодом 9 октября 2026. Версия: 0.1.0*

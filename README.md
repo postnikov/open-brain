@@ -62,7 +62,7 @@ Search works by meaning, not keywords. Cross-language: a Russian query finds Eng
 
 ### Stream
 
-Raw conversation capture. When you talk to AI, the most productive thinking disappears after closing the chat. Stream captures conversation blocks with zero AI overhead — just a fast DB write. Blocks live for 30 days (configurable TTL), can be pinned to keep permanently, and are distilled into proper thoughts automatically.
+Raw conversation capture. When you talk to AI, the most productive thinking disappears after closing the chat. Stream captures conversation blocks with zero AI overhead — just a fast DB write. Blocks are distilled into proper thoughts automatically and can be pinned to keep permanently. A block becomes deletable only after a durable distillation job that read it has completed: the 30-day TTL (configurable) and manual deletion both skip or reject blocks without that proof, so undistilled input is never lost.
 
 ### Distillation
 
@@ -101,12 +101,12 @@ capture → review → strengthen or let go
 | **Compost** | Thoughts you're letting go, dissolving in 30 days |
 | **Duplicates** | Detect and resolve near-duplicate thoughts (merge/dismiss) |
 | **Stream** | Raw conversation blocks — search, filter, pin/delete; "→ thoughts" links on distilled blocks |
-| **Import** | Drag-and-drop files + Obsidian vault scanner with progress |
+| **Import** | Drag-and-drop file upload (the vault folder scanner is disabled on the authenticated server) |
 | **Activity** | Real-time feed of all MCP tool calls with latency |
 | **Status** | Consolidated brain health: stream/distillation/thoughts stats, expiring blocks, costs |
 | **Distill Log** | Distillation run history with thought links, costs, and expandable details |
 
-Every thought card supports inline editing (with re-embedding), weight control, epistemic status, batch selection, and custom modal dialogs.
+Every thought card supports inline editing (a text change saves a new version that supersedes the old one), weight control, epistemic status, batch selection, and custom modal dialogs.
 
 ## MCP Tools
 
@@ -156,8 +156,10 @@ Prefer a client that reads the header from a helper command at connect time over
 ## CLI
 
 ```bash
-brain save "Your thought here" --source cli
+brain save "Your thought here" --source cli --source-ref "session:abc"
 brain save "Is consciousness computable?" --type question
+brain save "Corrected version" --supersedes <uuid> --reason "typo"
+brain unsupersede <uuid>                           # undo a replacement mark
 brain search "how to build a personal brand"
 brain recent --limit 10 --source obsidian
 brain stream --session conv-123 --status pending
@@ -168,6 +170,8 @@ brain tags
 brain tag-rename "old_tag" "new-tag"
 brain delete <uuid>
 ```
+
+`valid_to` is set through MCP `brain_save` only; the CLI has no flag for it.
 
 ## Architecture
 
@@ -200,13 +204,15 @@ brain delete <uuid>
 ## API
 
 <details>
-<summary>37 REST endpoints</summary>
+<summary>41 REST endpoints</summary>
 
 **Search & Read**
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/brain/status` | Consolidated brain health (stream + distillation + thoughts) |
+| GET | `/api/recall?q=query` | Two-step recall, step 1: pointers only (`limit` ≤ 10, `min_similarity`, `include_inactive`) |
+| POST | `/api/open` | Step 2: full text for `{ids, recall_id?}` + source state |
 | GET | `/api/search?q=query` | Semantic search |
 | GET | `/api/recent?limit=20` | Recent thoughts |
 | GET | `/api/timeline?q=topic` | Chronological search |
@@ -222,12 +228,13 @@ brain delete <uuid>
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| PUT | `/api/thoughts/:id` | Update (re-embeds on content change) |
+| PUT | `/api/thoughts/:id` | Update title/tags in place; a content change creates a new thought with `supersedes` (returns `previous_id`) |
 | DELETE | `/api/thoughts/:id` | Delete |
 | PATCH | `/api/thoughts/:id/weight` | Fade / amplify |
 | PATCH | `/api/thoughts/:id/status` | Set epistemic status |
 | POST | `/api/thoughts/:id/compost` | Send to compost |
 | POST | `/api/thoughts/:id/restore` | Restore from compost |
+| POST | `/api/thoughts/:id/unsupersede` | Undo a replacement mark (the newer thought stays) |
 | POST | `/api/thoughts/batch` | Bulk operations |
 | POST | `/api/duplicates/merge` | Merge duplicate pair |
 | POST | `/api/duplicates/dismiss` | Dismiss duplicate pair |
@@ -243,7 +250,7 @@ brain delete <uuid>
 | GET | `/api/stream/stats` | Stream statistics |
 | POST | `/api/stream` | Write a block |
 | PATCH | `/api/stream/:id/pin` | Pin / unpin |
-| DELETE | `/api/stream/:id` | Delete block |
+| DELETE | `/api/stream/:id` | Delete block — only after its durable distillation completed; otherwise the database rejects it |
 
 **Distillation**
 
@@ -259,8 +266,8 @@ brain delete <uuid>
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/import/files` | Import files with embeddings |
-| POST | `/api/import/obsidian/scan` | Scan Obsidian vault |
-| POST | `/api/import/obsidian/start` | Start vault import |
+| POST | `/api/import/obsidian/scan` | Scan Obsidian vault (legacy server only; 403 on `server:hardened`) |
+| POST | `/api/import/obsidian/start` | Start vault import (legacy server only; 403 on `server:hardened`) |
 | GET | `/api/import/status` | Import progress |
 | GET | `/api/activity` | MCP tool call log |
 | GET | `/api/activity/stats` | Activity statistics |
@@ -294,16 +301,25 @@ brain delete <uuid>
 ## Scripts
 
 ```bash
-npm run server      # Web UI + REST API + MCP HTTP
-npm run dev         # MCP stdio (Claude Desktop)
-npm run cli         # CLI
-npm run migrate     # Database migrations
-npm run test:api    # API smoke tests
-npm run index       # Index Obsidian vault
-npm run export      # Export to JSON
-npm run export:md   # Export to Markdown
-npm run backup      # pg_dump backup
+npm run server:hardened   # Web UI + REST API + MCP HTTP, bearer token required
+npm run server            # LEGACY, unauthenticated — do not use
+npm run dev               # MCP stdio (Claude Desktop)
+npm run cli               # CLI
+npm run migrate           # Database migrations
+npm run index             # Copy an Obsidian folder into thoughts — disabled unless OPEN_BRAIN_ALLOW_VAULT_COPY=1
+npm run export            # Export to JSON
+npm run export:md         # Export to Markdown
+npm run backup            # Full pg_dump (custom format) per ~/.open-brain/backup.json, no rotation
+npm run backup:check      # Verify the latest backup set and its age
+npm run backup:restore    # Restore drill into a separate scratch PostgreSQL cluster
+npm test                  # Unit tests (vitest)
+npm run test:backup       # Backup gates (real PostgreSQL with OPEN_BRAIN_TEST_PG_BIN)
+npm run test:p0           # Durable distillation gates (isolated PostgreSQL)
+npm run test:distillation-release  # Release gate, requires OPEN_BRAIN_TEST_PG_BIN
+npm run test:api          # API smoke — WRITES and DELETES real data, never on production
 ```
+
+`npm run index` is off by default: the vault stays the source of truth and Open Brain keeps pointers to it. With the override, the vault root is the `VAULT_PATH` constant in `src/scripts/index-obsidian.ts`, and a changed file's old thought is deleted and inserted again. Backup and restore details: [docs/operations.md](docs/operations.md).
 
 ## Cost
 
