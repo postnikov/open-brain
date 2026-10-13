@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "node --env-file=.env --import tsx/esm src/index.ts",
-    "server": "node --env-file=.env --import tsx/esm src/server.ts",
+    "server": "node --env-file=.env --import tsx/esm src/server-hardened.ts",
     "cli": "node --env-file=.env --import tsx/esm src/cli.ts",
     "build": "tsc",
     "migrate": "node --env-file=.env --import tsx/esm src/db/migrate.ts",

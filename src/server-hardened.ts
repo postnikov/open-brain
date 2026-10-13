@@ -36,6 +36,10 @@ async function main() {
   }
   process.once('SIGTERM', () => { void shutdown() })
   process.once('SIGINT', () => { void shutdown() })
-  console.error(`Open Brain secured HTTP listening on 127.0.0.1:${security.port}`)
+  console.error(`Open Brain secured HTTP listening on ${security.host}:${security.port}`)
 }
-main().catch(() => { console.error('Secured server failed to start; check private configuration'); process.exit(1) })
+main().catch((error: unknown) => {
+  // Configuration errors are safe to name (key names only); anything else stays generic.
+  const message = error instanceof Error && /^(OPEN_BRAIN_|Invalid OPEN_BRAIN_|Configure exactly one|Invalid HTTP port|Auth token must|HTTP token unavailable)/.test(error.message) ? `: ${error.message}` : '; check private configuration'
+  console.error(`Secured server failed to start${message}`); process.exit(1)
+})

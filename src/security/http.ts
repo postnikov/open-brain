@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readKeychainToken } from './keychain.js'
 
 export interface HttpSecurity {
-  readonly host: '127.0.0.1'
+  readonly host: '127.0.0.1' | '0.0.0.0'
   readonly port: number
   readonly token: string
   readonly authorities: readonly string[]
@@ -15,7 +15,11 @@ export interface HttpSecurity {
 export async function loadHttpSecurity(env: NodeJS.ProcessEnv = process.env, keychain = readKeychainToken): Promise<HttpSecurity> {
   const rawPort = env.PORT ?? '3100'
   if (!/^\d+$/.test(rawPort) || Number(rawPort) < 1 || Number(rawPort) > 65535) throw new Error('Invalid HTTP port')
-  if (env.OPEN_BRAIN_BIND_HOST && env.OPEN_BRAIN_BIND_HOST !== '127.0.0.1') throw new Error('Only IPv4 loopback is supported')
+  const host = env.OPEN_BRAIN_BIND_HOST || '127.0.0.1'
+  if (host !== '127.0.0.1' && host !== '0.0.0.0') throw new Error('OPEN_BRAIN_BIND_HOST must be 127.0.0.1 (default) or 0.0.0.0')
+  const extra = parseAllowedHosts(env.OPEN_BRAIN_ALLOWED_HOSTS)
+  // All interfaces (a container) only with an explicit Host allowlist: the Host/Origin check stays exact.
+  if (host === '0.0.0.0' && extra.length === 0) throw new Error('OPEN_BRAIN_BIND_HOST=0.0.0.0 requires OPEN_BRAIN_ALLOWED_HOSTS (comma-separated host:port the clients use)')
   const path = env.OPEN_BRAIN_HTTP_TOKEN_FILE
   const service = env.OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE
   if (Boolean(path) === Boolean(service)) throw new Error('Configure exactly one HTTP token source')
@@ -32,8 +36,20 @@ export async function loadHttpSecurity(env: NodeJS.ProcessEnv = process.env, key
   }
   if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Auth token must contain 32 random bytes as lowercase hex')
   const port = Number(rawPort)
-  const authorities = [`127.0.0.1:${port}`, `localhost:${port}`]
-  return { host: '127.0.0.1', port, token, authorities, origins: authorities.map(h => `http://${h}`) }
+  const authorities = [...new Set([`127.0.0.1:${port}`, `localhost:${port}`, ...extra])]
+  return { host, port, token, authorities, origins: authorities.map(h => `http://${h}`) }
+}
+
+/** Exact Host header values (`name:port`), lowercase; no wildcards, schemes, paths or IPv6 literals. */
+export function parseAllowedHosts(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return []
+  return raw.split(',').map(entry => {
+    const value = entry.trim()
+    const match = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*):(\d{1,5})$/.exec(value)
+    const port = Number(match?.[5])
+    if (!match || port < 1 || port > 65535) throw new Error(`Invalid OPEN_BRAIN_ALLOWED_HOSTS entry "${value}": expected lowercase host:port`)
+    return value
+  })
 }
 
 function oneHeader(req: IncomingMessage, name: string): boolean {

@@ -143,6 +143,8 @@ async function migrate(): Promise<void> {
   const client = await pool.connect()
 
   try {
+    // The vector type must exist before pgvector type registration and the first vector column.
+    await ensureVectorExtension(client)
     await pgvector.registerTypes(client)
     logger.info('Running migrations...')
 
@@ -180,6 +182,21 @@ async function migrate(): Promise<void> {
   } finally {
     client.release()
     await pool.end()
+  }
+}
+
+/**
+ * Creates pgvector on a clean database. An existing extension needs no privilege, so a
+ * non-superuser production role passes; a missing one it cannot create fails with the fix.
+ */
+async function ensureVectorExtension(client: pg.PoolClient): Promise<void> {
+  const existing = await client.query(`SELECT 1 FROM pg_extension WHERE extname = 'vector'`)
+  if (existing.rowCount) return
+  try {
+    await client.query('CREATE EXTENSION IF NOT EXISTS vector')
+    logger.info('pgvector extension created')
+  } catch (error) {
+    throw new Error('pgvector extension "vector" is missing and this database role cannot create it; run once as a superuser: CREATE EXTENSION vector;', { cause: error })
   }
 }
 

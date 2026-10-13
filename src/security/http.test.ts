@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { guardHttp, loadHttpSecurity, type HttpSecurity } from './http.js'
+import { guardHttp, loadHttpSecurity, parseAllowedHosts, type HttpSecurity } from './http.js'
 import { createHardenedServer } from './server.js'
 import { uploadOnlyImportService } from './file-access.js'
 import type { AppServices } from '../bootstrap.js'
@@ -81,6 +81,57 @@ describe('HTTP security boundary', () => {
       await writeFile(file, 'short')
       await expect(loadHttpSecurity({ OPEN_BRAIN_HTTP_TOKEN_FILE: file })).rejects.toThrow('32 random')
     } finally { await rm(dir, { recursive: true }) }
+  })
+  it('parses the Host allowlist strictly: exact lowercase host:port only', () => {
+    expect(parseAllowedHosts(undefined)).toEqual([])
+    expect(parseAllowedHosts('  ')).toEqual([])
+    expect(parseAllowedHosts('brain.internal:8080, localhost:3200')).toEqual(['brain.internal:8080', 'localhost:3200'])
+    for (const bad of ['*:3100', 'brain.internal', 'http://brain.internal:8080', 'brain.internal:8080/x', 'Brain.Internal:8080', '[::1]:3100', 'a:0', 'a:70000', 'a:3100,', '-a.b:3100', 'a..b:3100']) {
+      expect(() => parseAllowedHosts(bad), bad).toThrow('OPEN_BRAIN_ALLOWED_HOSTS')
+    }
+  })
+  it('binds all interfaces only with an explicit non-empty Host allowlist and says why otherwise', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ob-bind-')); const file = join(dir, 'token')
+    try {
+      await writeFile(file, TOKEN, { mode: 0o600 })
+      const base = { OPEN_BRAIN_HTTP_TOKEN_FILE: file }
+      expect((await loadHttpSecurity(base)).host).toBe('127.0.0.1')
+      for (const allow of [undefined, '', ' ']) {
+        await expect(loadHttpSecurity({ ...base, OPEN_BRAIN_BIND_HOST: '0.0.0.0', OPEN_BRAIN_ALLOWED_HOSTS: allow })).rejects.toThrow('requires OPEN_BRAIN_ALLOWED_HOSTS')
+      }
+      for (const bind of ['192.168.1.10', '::', '0.0.0.0 ', 'localhost']) {
+        await expect(loadHttpSecurity({ ...base, OPEN_BRAIN_BIND_HOST: bind, OPEN_BRAIN_ALLOWED_HOSTS: 'brain.internal:8080' })).rejects.toThrow('OPEN_BRAIN_BIND_HOST')
+      }
+      await expect(loadHttpSecurity({ ...base, OPEN_BRAIN_BIND_HOST: '0.0.0.0', OPEN_BRAIN_ALLOWED_HOSTS: '*' })).rejects.toThrow('Invalid OPEN_BRAIN_ALLOWED_HOSTS')
+      await expect(loadHttpSecurity({ OPEN_BRAIN_BIND_HOST: '0.0.0.0', OPEN_BRAIN_ALLOWED_HOSTS: 'brain.internal:8080' })).rejects.toThrow('exactly one')
+      const container = await loadHttpSecurity({ ...base, OPEN_BRAIN_BIND_HOST: '0.0.0.0', OPEN_BRAIN_ALLOWED_HOSTS: 'brain.internal:8080' })
+      expect(container.host).toBe('0.0.0.0')
+      expect(container.authorities).toEqual(['127.0.0.1:3100', 'localhost:3100', 'brain.internal:8080'])
+      expect(container.origins).toContain('http://brain.internal:8080')
+    } finally { await rm(dir, { recursive: true }) }
+  })
+  it('container mode: listens on 0.0.0.0, still requires the bearer and rejects foreign Host/Origin', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ob-container-')); const file = join(dir, 'token')
+    await writeFile(file, TOKEN, { mode: 0o600 })
+    const loaded = await loadHttpSecurity({ OPEN_BRAIN_HTTP_TOKEN_FILE: file, OPEN_BRAIN_BIND_HOST: '0.0.0.0', OPEN_BRAIN_ALLOWED_HOSTS: 'brain.internal:8080' })
+    const services = { activityLogger: { log: vi.fn(async () => {}) }, importService: { importFiles: vi.fn(), getProgress: vi.fn() } } as unknown as AppServices
+    const { http, closeSessions } = createHardenedServer(services, loaded)
+    await new Promise<void>(resolve => http.listen(0, loaded.host, resolve))
+    const address = http.address() as { address: string; port: number }
+    try {
+      expect(address.address).toBe('0.0.0.0')
+      const port = address.port
+      const host = { Host: 'brain.internal:8080' }
+      expect((await send(port, '/health', 'GET', host)).status).toBe(401)
+      expect((await send(port, '/mcp', 'POST', { ...host, Authorization: 'Bearer wrong' })).status).toBe(401)
+      expect((await send(port, '/health', 'GET', { ...host, Authorization: `Bearer ${TOKEN}` })).status).toBe(200)
+      expect((await send(port, '/health', 'GET', { ...host, Origin: 'http://brain.internal:8080', Authorization: `Bearer ${TOKEN}` })).status).toBe(200)
+      for (const Host of ['evil.test:8080', 'brain.internal:8081', 'brain.internal', 'brain.internal:8080.evil']) {
+        expect((await send(port, '/health', 'GET', { Host, Authorization: `Bearer ${TOKEN}` })).status, Host).toBe(403)
+      }
+      expect((await send(port, '/health', 'GET', { ...host, Origin: 'http://evil.test:8080', Authorization: `Bearer ${TOKEN}` })).status).toBe(403)
+      expect((await send(port, '/api/import/obsidian/scan', 'POST', { ...host, Authorization: `Bearer ${TOKEN}` })).status).toBe(403)
+    } finally { await closeSessions(); await close(http); await rm(dir, { recursive: true }) }
   })
   it('denies directory imports at the service boundary without filesystem/AI calls', async () => {
     const scanVault = vi.fn(), importVaultFiles = vi.fn(), importFiles = vi.fn()
