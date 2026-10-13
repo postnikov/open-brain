@@ -99,7 +99,7 @@ describe('HTTP security boundary', () => {
       for (const allow of [undefined, '', ' ']) {
         await expect(loadHttpSecurity({ ...base, OPEN_BRAIN_BIND_HOST: '0.0.0.0', OPEN_BRAIN_ALLOWED_HOSTS: allow })).rejects.toThrow('requires OPEN_BRAIN_ALLOWED_HOSTS')
       }
-      for (const bind of ['192.168.1.10', '::', '0.0.0.0 ', 'localhost']) {
+      for (const bind of ['::', '0.0.0.0 ', 'localhost', '*']) {
         await expect(loadHttpSecurity({ ...base, OPEN_BRAIN_BIND_HOST: bind, OPEN_BRAIN_ALLOWED_HOSTS: 'brain.internal:8080' })).rejects.toThrow('OPEN_BRAIN_BIND_HOST')
       }
       await expect(loadHttpSecurity({ ...base, OPEN_BRAIN_BIND_HOST: '0.0.0.0', OPEN_BRAIN_ALLOWED_HOSTS: '*' })).rejects.toThrow('Invalid OPEN_BRAIN_ALLOWED_HOSTS')
