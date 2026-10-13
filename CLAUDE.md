@@ -4,7 +4,7 @@ Personal memory service: TypeScript/Node.js (ESM), PostgreSQL + pgvector, Drizzl
 
 ## Entry points and structure
 
-- `src/server-hardened.ts`: the authenticated HTTP entry (launchd, README quick start, Dockerfile). `src/server.ts`: legacy unauthenticated HTTP entry, kept as `npm run server` and marked do-not-use in public docs. Both serve `/mcp`, `/api/*`, static UI, `/health`, MCP sessions, scheduled cleanup and distillation.
+- `src/server-hardened.ts`: the authenticated HTTP entry (launchd, README quick start, Dockerfile). `src/server.ts`: legacy unauthenticated HTTP entry; since 2026-10-13 no npm script runs it (`npm run server` = `server:hardened`), the file stays for `ops/*rollout*.py` plist checks. Both serve `/mcp`, `/api/*`, static UI, `/health`, MCP sessions, scheduled cleanup and distillation.
 - `src/index.ts`: stdio MCP entry point; a separate process per client.
 - `src/cli.ts`: `brain` CLI. `src/bootstrap.ts` assembles the services used by all entry points.
 - `src/config/{schema,defaults,loader}.ts`: validated config; reads `~/.open-brain/config.json`, with `DATABASE_URL` overriding database connection settings. Loading missing config creates a default file.
@@ -22,11 +22,11 @@ Personal memory service: TypeScript/Node.js (ESM), PostgreSQL + pgvector, Drizzl
 - launchd: `~/Library/LaunchAgents/com.open-brain.server.plist`, label `com.open-brain.server`; runs `src/server-hardened.ts` via local `tsx` from this repository. Endpoint: `http://127.0.0.1:3100`; bearer required, including health.
 - PostgreSQL database defaults to `open_brain` on local port 5432. Inspect effective `DATABASE_URL`/config without printing credentials. On this Mac, `homebrew.mxcl.postgresql@14` owns `/opt/homebrew/var/postgresql@14`; confirm its live plist before assuming that location elsewhere.
 - `.env`: local API credentials (git-ignored). `~/.open-brain/config.json`: runtime settings. `~/.open-brain/server.log`: launchd stdout/stderr. `~/.open-brain/backups/`: backup script's default destination; existence does not establish a working backup schedule.
-- Docker (2026-10-09): `docker-compose.yml` is database-only on `127.0.0.1:5432`; `Dockerfile` runs `server-hardened.ts`, which binds loopback only, so a container is reachable only with host networking. Do not start either alongside the existing local production service (port 5432/3100 clash).
+- Docker (2026-10-13): `docker compose up -d` = database only on `127.0.0.1:5432`; the app is opt-in (`--profile app`): `server-hardened.ts` with `OPEN_BRAIN_BIND_HOST=0.0.0.0`, accepted only with a non-empty `OPEN_BRAIN_ALLOWED_HOSTS` (`parseAllowedHosts` in `src/security/http.ts`), published on `127.0.0.1:3100`, token file bind-mounted read-only, user `OPEN_BRAIN_UID`. Never live-tested in Docker on this Mac (Docker Desktop off); covered by `src/security/http.test.ts` and an e2e of the entry with bind 0.0.0.0. Do not start either alongside the existing local production service (port 5432/3100 clash). Never run `docker compose config` without `-q`: it expands `.env` and prints the OpenAI key.
 
 ## Development and verification
 
-After reading the effective config and choosing an isolated database: `npm ci`; `npm run migrate`; `npm run server` (HTTP) or `npm run dev` (stdio). These are setup/write operations, not read-only diagnostics. `npm run build` emits `dist/`; launchd runs source, not that build.
+After reading the effective config and choosing an isolated database: `npm ci`; `npm run migrate` (creates `vector` on a clean DB if the role may; `src/db/migrate.test.ts` with `OPEN_BRAIN_TEST_PG_BIN`); `npm run server` (hardened HTTP) or `npm run dev` (stdio). These are setup/write operations, not read-only diagnostics. `npm run build` emits `dist/`; launchd runs source, not that build.
 
 Read-only inspection on the existing service:
 

@@ -1,7 +1,8 @@
-# PostgreSQL + pgvector for local use. The app runs on the host with the
-# authenticated server (`npm run server:hardened`), see README "Quick Start".
-# The authenticated server listens on 127.0.0.1 only, so it cannot be published
-# from a container port; the legacy unauthenticated server is not shipped here.
+# PostgreSQL + pgvector on 127.0.0.1:5432 by default: `docker compose up -d`.
+# The app container is opt-in: `docker compose --profile app up -d` (see README "Docker").
+# It runs the authenticated server bound to 0.0.0.0 inside the container, which the
+# server accepts only with an explicit OPEN_BRAIN_ALLOWED_HOSTS; without it the
+# container exits and says why. Published on host loopback only.
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -19,6 +20,37 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  app:
+    profiles: ["app"]
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    # The token file must be owned by the container user (Linux: OPEN_BRAIN_UID=$(id -u)).
+    user: "${OPEN_BRAIN_UID:-1000}:${OPEN_BRAIN_GID:-1000}"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://open_brain:open_brain_local@db:5432/open_brain
+      PORT: "3100"
+      OPEN_BRAIN_BIND_HOST: 0.0.0.0
+      # Exact Host values clients use, e.g. "127.0.0.1:3100"; empty = refuse to start.
+      OPEN_BRAIN_ALLOWED_HOSTS: ${OPEN_BRAIN_ALLOWED_HOSTS:-}
+      OPEN_BRAIN_HTTP_TOKEN_FILE: /run/open-brain/http-token
+      OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE: ""
+    volumes:
+      - type: bind
+        source: ${OPEN_BRAIN_TOKEN_FILE:-${HOME}/.open-brain/http-token}
+        target: /run/open-brain/http-token
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:3100:3100"
+    command: >
+      sh -c "node --import tsx/esm src/db/migrate.ts &&
+             exec node --import tsx/esm src/server-hardened.ts"
 
 volumes:
   pgdata:

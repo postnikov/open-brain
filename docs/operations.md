@@ -79,7 +79,7 @@ deleting backup script into scheduled use.
 
 ## HTTP local auth (stage 2 deployed on the local Mac)
 
-The local launchd job runs `src/server-hardened.ts`. `src/server.ts` is the legacy
+The local launchd job runs `src/server-hardened.ts` (also `npm run server`). `src/server.ts` is the legacy
 entry and must not be used as a rollback: it exposes unauthenticated HTTP.
 `ops/http-rollout.py` performs the approved cutover with dated adjacent 0600
 backups of both client configs and the server plist. Its private manifest lives
@@ -164,7 +164,10 @@ Probe every non-loopback address on the Mac; this is not a probe from a second
 machine. Reconnect and call a read tool from **both native clients**, not only an
 SDK. A live semantic search invokes the embedding API and writes an activity log.
 Other HTTP callers must supply auth too; health endpoints are deliberately not
-exempt. Docker/remote access need a separate ingress design.
+exempt. Remote access needs a separate ingress design. A container may bind
+`0.0.0.0` only with an explicit `OPEN_BRAIN_ALLOWED_HOSTS` (exact `host:port`
+values); without it the server refuses to start. The compose `app` profile
+publishes on host loopback only. This Mac's launchd job keeps the loopback default.
 
 ### Cutover and rollback
 

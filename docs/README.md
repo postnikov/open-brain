@@ -435,8 +435,8 @@ Open Brain предоставляет 12 MCP tools, доступных из Clau
 | POST | `/api/stream` | Записать блок стрима |
 | PATCH | `/api/stream/:id/pin` | Закрепить/открепить блок |
 | DELETE | `/api/stream/:id` | Удалить блок стрима — только после завершённой durable-дистилляции, иначе БД отклоняет |
-| POST | `/api/import/obsidian/scan` | Сканирование Obsidian vault (только legacy-сервер; на `server:hardened` — 403) |
-| POST | `/api/import/obsidian/start` | Запуск импорта из vault (только legacy-сервер; на `server:hardened` — 403) |
+| POST | `/api/import/obsidian/scan` | Сканирование Obsidian vault (выключено: на авторизованном сервере — 403) |
+| POST | `/api/import/obsidian/start` | Запуск импорта из vault (выключено: на авторизованном сервере — 403) |
 | POST | `/api/distillation/run` | Power Nap — ручной запуск дистилляции (409 если уже работает) |
 | GET | `/api/distillation/status` | Текущий статус (running, last_run) |
 | GET | `/api/distillation/log?limit=20` | Лог запусков дистилляции |
@@ -759,11 +759,13 @@ PRIMARY KEY: `(id_a, id_b)`. Хранит пары дубликатов, кот�
 | Режим | Entry point | Транспорт | Для чего |
 |-------|------------|-----------|----------|
 | stdio | `src/index.ts` | StdioServerTransport | Claude Desktop |
-| HTTP | `src/server-hardened.ts` (`npm run server:hardened`) | StreamableHTTPServerTransport | Web UI, REST API, MCP по HTTP на этой машине |
+| HTTP | `src/server-hardened.ts` (`npm run server`, алиас `server:hardened`) | StreamableHTTPServerTransport | Web UI, REST API, MCP по HTTP на этой машине |
 
-HTTP-сервер слушает только `127.0.0.1`, принимает Host/Origin только `127.0.0.1:<port>` и `localhost:<port>` и требует `Authorization: Bearer <token>` на всём, кроме пустой оболочки UI (`/`, `/static/…`). Токен — ровно один источник: `OPEN_BRAIN_HTTP_TOKEN_FILE` (абсолютный путь к owner-only файлу, 64 hex-символа) или `OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE` (login Keychain на macOS). Нет токена или он кривой — сервер не стартует. Импорт папки Obsidian по HTTP закрыт (403), файлы — только загрузкой. Подробности и настройка клиентов — `docs/operations.md`.
+По умолчанию HTTP-сервер слушает только `127.0.0.1`, принимает Host/Origin только `127.0.0.1:<port>` и `localhost:<port>` и требует `Authorization: Bearer <token>` на всём, кроме пустой оболочки UI (`/`, `/static/…`). Токен — ровно один источник: `OPEN_BRAIN_HTTP_TOKEN_FILE` (абсолютный путь к owner-only файлу, 64 hex-символа) или `OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE` (login Keychain на macOS). Нет токена или он кривой — сервер не стартует. Импорт папки Obsidian по HTTP закрыт (403), файлы — только загрузкой. Подробности и настройка клиентов — `docs/operations.md`.
 
-`src/server.ts` (`npm run server`) — legacy-вход без авторизации (`/health` открыт, CORS `*`); не использовать, в том числе как откат.
+Контейнер (opt-in, профиль `app` в `docker-compose.yml`): `OPEN_BRAIN_BIND_HOST=0.0.0.0` сервер принимает только вместе с непустым `OPEN_BRAIN_ALLOWED_HOSTS` — точные `host:port`, которые клиенты шлют в Host; они добавляются к allowlist Host/Origin. Без allowlist сервер не стартует и пишет, какой переменной не хватает. Другие значения bind отклоняются. Токен и проверки те же; запуск — раздел Docker в `README.md`.
+
+`src/server.ts` — старый вход без авторизации (`/health` открыт, CORS `*`); ни один npm-скрипт его больше не запускает, как откат не использовать.
 
 ### Endpoints HTTP-сервера
 
@@ -843,7 +845,7 @@ open-brain/
 ├── src/
 │   ├── index.ts               # MCP server (stdio) — для Claude Desktop
 │   ├── server-hardened.ts     # HTTP server с токеном — Web UI, REST API, MCP HTTP
-│   ├── server.ts              # legacy HTTP server без авторизации — не использовать
+│   ├── server.ts              # старый HTTP server без авторизации — не запускается npm-скриптами
 │   ├── cli.ts                 # CLI — команда brain
 │   ├── bootstrap.ts           # Инициализация сервисов
 │   ├── config/
@@ -905,10 +907,10 @@ open-brain/
 | Скрипт | Описание |
 |--------|----------|
 | `npm run dev` | Запуск MCP-сервера (stdio) |
-| `npm run server:hardened` | Запуск HTTP-сервера с токеном |
-| `npm run server` | Legacy HTTP-сервер без авторизации — не использовать |
+| `npm run server` | Запуск HTTP-сервера с токеном |
+| `npm run server:hardened` | То же, алиас |
 | `npm run cli` | Запуск CLI |
-| `npm run migrate` | Миграции базы данных |
+| `npm run migrate` | Миграции базы данных; на чистой БД сначала создаёт расширение `vector` (если роли можно) |
 | `npm run index` | Копия папки Obsidian в мысли — только с `OPEN_BRAIN_ALLOW_VAULT_COPY=1` |
 | `npm run export` | Экспорт в JSON |
 | `npm run export:md` | Экспорт в Markdown |

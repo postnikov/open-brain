@@ -12,22 +12,23 @@ The system also respects that not every thought is permanent. Ideas have a lifec
 
 ## Quick Start
 
-Requires Node.js 20+ and PostgreSQL 14+ with [pgvector](https://github.com/pgvector/pgvector) — your own, or the database-only Docker Compose file.
+Requires Node.js 20+ and PostgreSQL 14+ with [pgvector](https://github.com/pgvector/pgvector) — your own, or the Docker Compose database. To run the app in Docker as well, see [Docker](#docker) below.
 
 ```bash
 git clone https://github.com/postnikov/open-brain.git
 cd open-brain
 ```
 
-**1. Database.** Either run `./setup.sh` against your local PostgreSQL (it creates the user, the database, the `vector` extension and runs migrations), or use Docker for the database only:
+**1. Database.** Either run `./setup.sh` against your local PostgreSQL (it creates the user, the database, the `vector` extension and runs migrations), or use Docker for the database:
 
 ```bash
 cp .env.example .env    # add your OPENAI_API_KEY
 docker compose up -d    # PostgreSQL + pgvector on 127.0.0.1:5432
-docker compose exec db psql -U open_brain -d open_brain -c "CREATE EXTENSION IF NOT EXISTS vector;"
 npm ci
-npm run migrate
+npm run migrate         # creates the vector extension on a clean database, then the schema
 ```
+
+`npm run migrate` creates `vector` when the database role may do so (the Docker database user can). Otherwise it stops before creating any table and names the fix: run `CREATE EXTENSION vector;` once as a superuser.
 
 **2. Access token.** The HTTP server requires a bearer token on every request except the empty UI shell. Create one owner-only file with 32 random bytes as hex and point `.env` at it:
 
@@ -37,15 +38,28 @@ mkdir -p ~/.open-brain
 echo "OPEN_BRAIN_HTTP_TOKEN_FILE=$HOME/.open-brain/http-token" >> .env
 ```
 
-**3. Start the authenticated server.**
+**3. Start the server.**
 
 ```bash
-npm run server:hardened
+npm run server          # same as npm run server:hardened
 ```
 
-Open [http://127.0.0.1:3100](http://127.0.0.1:3100) and paste the token (`cat ~/.open-brain/http-token`); the UI keeps it in page memory only. The server listens on IPv4 loopback only and accepts only `127.0.0.1:3100` / `localhost:3100` as Host and Origin. Missing or invalid token configuration stops the server before it touches the database.
+Open [http://127.0.0.1:3100](http://127.0.0.1:3100) and paste the token (`cat ~/.open-brain/http-token`); the UI keeps it in page memory only. By default the server listens on IPv4 loopback only and accepts only `127.0.0.1:3100` / `localhost:3100` as Host and Origin. Missing or invalid token configuration stops the server before it touches the database. On macOS the token can live in the login Keychain instead of a file (`OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE`) — see [docs/operations.md](docs/operations.md).
 
-Do not use `npm run server` (`src/server.ts`): it is the legacy entry point with no authentication, `/health` open and CORS `*`. On macOS the token can live in the login Keychain instead of a file (`OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE`) — see [docs/operations.md](docs/operations.md).
+`src/server.ts` is the old unauthenticated entry point (`/health` open, CORS `*`); no npm script runs it any more.
+
+### Docker
+
+The database alone: `docker compose up -d` (above). The app container is opt-in, behind the `app` profile, with the same bearer authentication:
+
+```bash
+# token from Quick Start step 2; on Linux the file must belong to the container user
+export OPEN_BRAIN_UID=$(id -u) OPEN_BRAIN_GID=$(id -g)
+export OPEN_BRAIN_ALLOWED_HOSTS=127.0.0.1:3100,localhost:3100
+docker compose --profile app up -d --build
+```
+
+Inside the container the server binds `0.0.0.0`, which it allows only together with a non-empty `OPEN_BRAIN_ALLOWED_HOSTS` — the exact `host:port` values your clients send as Host (a name behind your reverse proxy, for example). Without the allowlist the container exits with `OPEN_BRAIN_BIND_HOST=0.0.0.0 requires OPEN_BRAIN_ALLOWED_HOSTS`. Requests with any other Host or Origin get 403, requests without the token get 401. Compose publishes the port on host loopback (`127.0.0.1:3100`) and mounts the token file read-only from `OPEN_BRAIN_TOKEN_FILE` (default `~/.open-brain/http-token`). The container runs migrations before the server starts. Do not run it next to a host-side server on the same port.
 
 ## Core Concepts
 
@@ -146,7 +160,7 @@ All tool calls are logged to the Activity feed.
 ### HTTP mode (Cursor, multiple clients)
 
 ```bash
-npm run server:hardened
+npm run server
 # MCP endpoint: http://127.0.0.1:3100/mcp (Streamable HTTP)
 # every request: Authorization: Bearer <token>
 ```
@@ -266,8 +280,8 @@ brain delete <uuid>
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/import/files` | Import files with embeddings |
-| POST | `/api/import/obsidian/scan` | Scan Obsidian vault (legacy server only; 403 on `server:hardened`) |
-| POST | `/api/import/obsidian/start` | Start vault import (legacy server only; 403 on `server:hardened`) |
+| POST | `/api/import/obsidian/scan` | Scan Obsidian vault (disabled: 403 on the authenticated server) |
+| POST | `/api/import/obsidian/start` | Start vault import (disabled: 403 on the authenticated server) |
 | GET | `/api/import/status` | Import progress |
 | GET | `/api/activity` | MCP tool call log |
 | GET | `/api/activity/stats` | Activity statistics |
@@ -283,8 +297,10 @@ brain delete <uuid>
 | `OPENAI_API_KEY` | Yes | — |
 | `DATABASE_URL` | No | `postgresql://open_brain:open_brain_local@localhost:5432/open_brain` |
 | `PORT` | No | `3100` |
-| `OPEN_BRAIN_HTTP_TOKEN_FILE` | One of the two, for `server:hardened` | — absolute path to an owner-only file with 64 hex chars |
-| `OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE` | One of the two, for `server:hardened` (macOS) | — login Keychain service name |
+| `OPEN_BRAIN_HTTP_TOKEN_FILE` | One of the two, for `npm run server` | — absolute path to an owner-only file with 64 hex chars |
+| `OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE` | One of the two, for `npm run server` (macOS) | — login Keychain service name |
+| `OPEN_BRAIN_BIND_HOST` | No | `127.0.0.1`; `0.0.0.0` only with `OPEN_BRAIN_ALLOWED_HOSTS` (containers) |
+| `OPEN_BRAIN_ALLOWED_HOSTS` | With `0.0.0.0` | — comma-separated exact `host:port` added to the Host/Origin allowlist |
 
 **Config** (`~/.open-brain/config.json`) — auto-created with defaults:
 
@@ -301,11 +317,11 @@ brain delete <uuid>
 ## Scripts
 
 ```bash
-npm run server:hardened   # Web UI + REST API + MCP HTTP, bearer token required
-npm run server            # LEGACY, unauthenticated — do not use
+npm run server            # Web UI + REST API + MCP HTTP, bearer token required
+npm run server:hardened   # same entry, kept as an alias
 npm run dev               # MCP stdio (Claude Desktop)
 npm run cli               # CLI
-npm run migrate           # Database migrations
+npm run migrate           # Database migrations (creates the vector extension if allowed)
 npm run index             # Copy an Obsidian folder into thoughts — disabled unless OPEN_BRAIN_ALLOW_VAULT_COPY=1
 npm run export            # Export to JSON
 npm run export:md         # Export to Markdown
