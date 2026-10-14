@@ -9,6 +9,7 @@ import { createEmbeddingService } from '../pipeline/embeddings.js'
 import { createMetadataService } from '../pipeline/metadata.js'
 import { createCapturePipeline } from '../pipeline/capture.js'
 import { logger } from '../shared/logger.js'
+import { resolveOpenAIKey } from '../security/openai-key.js'
 import { sql } from 'drizzle-orm'
 import { glob } from 'node:fs'
 
@@ -49,8 +50,7 @@ async function main(): Promise<void> {
   }
   const config = await loadConfig()
   const databaseUrl = getDatabaseUrl(config)
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error('OPENAI_API_KEY required')
+  const apiKey = await resolveOpenAIKey()
 
   const { db, pool } = await createDatabase(databaseUrl)
   const repository = createThoughtsRepository(db)

@@ -6,17 +6,26 @@ import { join } from 'node:path'
 const exec = promisify(execFile)
 
 /** Values never go into argv, files or error messages. Login Keychain only. */
-export async function readKeychainToken(service: string): Promise<string> {
+async function readKeychainValue(service: string, valid: RegExp, what: string): Promise<string> {
   if (!/^[A-Za-z0-9_./-]+$/.test(service)) throw new Error('Invalid Keychain service name')
   try {
     const { stdout } = await exec('/usr/bin/security', [
       'find-generic-password', '-a', userInfo().username, '-s', service,
       '-w', join(homedir(), 'Library/Keychains/login.keychain-db'),
     ], { timeout: 5000, maxBuffer: 1024 })
-    const token = stdout.trim()
-    if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid token')
-    return token
+    const value = stdout.trim()
+    if (!valid.test(value)) throw new Error('Invalid value')
+    return value
   } catch {
-    throw new Error('HTTP token unavailable or invalid in login Keychain')
+    throw new Error(`${what} unavailable or invalid in login Keychain`)
   }
+}
+
+export function readKeychainToken(service: string): Promise<string> {
+  return readKeychainValue(service, /^[a-f0-9]{64}$/, 'HTTP token')
+}
+
+/** Any printable single-line key; the OpenAI client rejects a wrong one itself. */
+export function readKeychainApiKey(service: string): Promise<string> {
+  return readKeychainValue(service, /^[\x21-\x7e]{20,512}$/, 'OpenAI API key')
 }

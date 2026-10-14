@@ -13,6 +13,7 @@ import { createDistillationRepository } from './distillation/repository.js'
 import { createDistillationService } from './distillation/service.js'
 import { registerTools } from './tools/register.js'
 import { createRecallService, type RecallService } from './memory/recall.js'
+import { resolveOpenAIKey } from './security/openai-key.js'
 import type { CapturePipeline } from './pipeline/capture.js'
 import type { EmbeddingService } from './pipeline/embeddings.js'
 import type { ThoughtsRepository } from './repository/types.js'
@@ -49,10 +50,7 @@ export async function bootstrapServices(): Promise<AppServices> {
   const config = await loadConfig()
   const databaseUrl = getDatabaseUrl(config)
 
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is required')
-  }
+  const apiKey = await resolveOpenAIKey()
 
   const { db, pool } = await createDatabase(databaseUrl)
   if (process.env.OPEN_BRAIN_MAINTENANCE !== '1') {
