@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { EmbeddingService } from '../pipeline/embeddings.js'
-import type { ThoughtsRepository } from '../repository/types.js'
+import type { RecallScope, ThoughtsRepository } from '../repository/types.js'
 import { memoryStatus } from '../repository/types.js'
 import type { AppConfig } from '../config/schema.js'
 import { shortRef, sourceState } from './source.js'
@@ -11,6 +11,7 @@ export interface RecallOptions {
   readonly limit?: number
   readonly includeInactive?: boolean
   readonly minSimilarity?: number
+  readonly scope?: RecallScope
 }
 
 /** Step one: pointers only. There is deliberately no text field in this shape. */
@@ -60,7 +61,7 @@ export interface OpenResponse {
 
 export interface RecallService {
   readonly recall: (query: string, options?: RecallOptions) => Promise<RecallResponse>
-  readonly open: (ids: readonly string[], recallId?: string) => Promise<OpenResponse>
+  readonly open: (ids: readonly string[], recallId?: string, scope?: RecallScope) => Promise<OpenResponse>
 }
 
 const day = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null)
@@ -75,7 +76,7 @@ export function createRecallService(
       const limit = Math.min(Math.max(options.limit ?? memory.recall_limit, 1), 10)
       const embedding = await embeddingService.embed(query)
       const pointers = await repository.recall(
-        embedding, limit, options.minSimilarity ?? memory.recall_min_similarity, memory.hot_boost, options.includeInactive ?? false,
+        embedding, limit, options.minSimilarity ?? memory.recall_min_similarity, memory.hot_boost, options.includeInactive ?? false, options.scope,
       )
       return {
         recall_id: randomUUID(),
@@ -95,9 +96,10 @@ export function createRecallService(
       }
     },
 
-    async open(ids, recallId) {
+    async open(ids, recallId, scope) {
       const unique = [...new Set(ids)].slice(0, MAX_OPEN_IDS)
-      const found = await repository.open(unique)
+      // Out-of-scope ids land in `missing`, indistinguishable from unknown ones.
+      const found = await repository.open(unique, scope)
       const thoughts = await Promise.all(found.map(async (t) => {
         const state = t.sourceRef ? await sourceState(t.sourceRef, t.content) : { sourceLive: null, sourceChanged: null }
         return {

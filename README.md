@@ -225,8 +225,8 @@ brain delete <uuid>
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/brain/status` | Consolidated brain health (stream + distillation + thoughts) |
-| GET | `/api/recall?q=query` | Two-step recall, step 1: pointers only (`limit` ≤ 10, `min_similarity`, `include_inactive`) |
-| POST | `/api/open` | Step 2: full text for `{ids, recall_id?}` + source state |
+| GET | `/api/recall?q=query` | Two-step recall, step 1: pointers only (`limit` ≤ 10, `min_similarity`, `include_inactive`; scope `source=a,b` and `tag=x`, repeatable, empty = nothing) |
+| POST | `/api/open` | Step 2: full text for `{ids, recall_id?, sources?, tags?}` + source state; out-of-scope ids are reported as missing |
 | GET | `/api/search?q=query` | Semantic search |
 | GET | `/api/recent?limit=20` | Recent thoughts |
 | GET | `/api/timeline?q=topic` | Chronological search |
@@ -283,7 +283,7 @@ brain delete <uuid>
 | POST | `/api/import/obsidian/scan` | Scan Obsidian vault (disabled: 403 on the authenticated server) |
 | POST | `/api/import/obsidian/start` | Start vault import (disabled: 403 on the authenticated server) |
 | GET | `/api/import/status` | Import progress |
-| GET | `/api/activity` | MCP tool call log |
+| GET | `/api/activity` | MCP tool call log; REST recall/open are logged too, client `rest:<X-Open-Brain-Client header>` |
 | GET | `/api/activity/stats` | Activity statistics |
 
 </details>

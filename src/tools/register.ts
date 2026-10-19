@@ -249,9 +249,11 @@ export function registerTools(
           query: z.string().min(1).describe('What you need to remember: the task and the question it raises'),
           limit: z.number().int().min(1).max(10).optional().describe('Max pointers (default from config, max 10)'),
           include_inactive: z.boolean().default(false).describe('Also show superseded and expired thoughts'),
+          sources: z.array(z.string().min(1)).max(20).optional().describe('Only thoughts whose source is in this list (empty list = nothing)'),
+          tags: z.array(z.string().min(1)).max(20).optional().describe('Only thoughts carrying at least one of these tags (empty list = nothing)'),
         },
       },
-      async (args) => recallService.recall(args.query, { limit: args.limit, includeInactive: args.include_inactive }),
+      async (args) => recallService.recall(args.query, { limit: args.limit, includeInactive: args.include_inactive, scope: { sources: args.sources, tags: args.tags } }),
     )
 
     defineTool(
@@ -261,9 +263,11 @@ export function registerTools(
         inputSchema: {
           ids: z.array(z.string().uuid()).min(1).max(MAX_OPEN_IDS).describe('Thought ids from brain_recall'),
           recall_id: z.string().uuid().optional().describe('recall_id from brain_recall (traces which pointers were used)'),
+          sources: z.array(z.string().min(1)).max(20).optional().describe('Open only thoughts from these sources; others are reported as missing'),
+          tags: z.array(z.string().min(1)).max(20).optional().describe('Open only thoughts carrying one of these tags; others are reported as missing'),
         },
       },
-      async (args) => recallService.open(args.ids, args.recall_id),
+      async (args) => recallService.open(args.ids, args.recall_id, { sources: args.sources, tags: args.tags }),
     )
   }
 

@@ -21,6 +21,7 @@ function summarizeInput(toolName: string, args: Record<string, unknown>): string
   if (Array.isArray(args.ids)) parts.push(`ids: ${args.ids.map((id) => String(id).slice(0, 8)).join(',')}`)
   if (args.recall_id) parts.push(`recall: ${String(args.recall_id).slice(0, 8)}`)
   if (args.supersedes) parts.push(`supersedes: ${String(args.supersedes).slice(0, 8)}`)
+  if (Array.isArray(args.sources)) parts.push(`sources: ${args.sources.join(',')}`)
 
   return parts.length > 0 ? parts.join(', ') : toolName
 }
@@ -48,6 +49,42 @@ function summarizeOutput(text: string): string {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '...' : s
+}
+
+const CLIENT_RE = /^[A-Za-z0-9._-]{1,40}$/
+
+/** REST caller name from the optional `X-Open-Brain-Client` header, recorded as `rest:<name>`. */
+export function restClientName(header: string | string[] | undefined): string {
+  const value = Array.isArray(header) ? header[0] : header
+  return `rest:${value && CLIENT_RE.test(value) ? value : 'anonymous'}`
+}
+
+/**
+ * Activity record for a REST call that mirrors an MCP tool, so reads are counted whatever the
+ * transport. Logging never fails the call.
+ */
+export async function withRestActivity<T>(
+  logger: ActivityLogger,
+  toolName: string,
+  clientName: string,
+  args: Record<string, unknown>,
+  run: () => Promise<T>,
+): Promise<T> {
+  const start = Date.now()
+  try {
+    const result = await run()
+    logger.log({
+      toolName, clientName, status: 'success', durationMs: Date.now() - start,
+      inputSummary: summarizeInput(toolName, args), outputSummary: summarizeOutput(JSON.stringify(result)),
+    }).catch(() => {})
+    return result
+  } catch (error) {
+    logger.log({
+      toolName, clientName, status: 'error', durationMs: Date.now() - start,
+      inputSummary: summarizeInput(toolName, args), errorMessage: error instanceof Error ? error.message : 'Unknown error',
+    }).catch(() => {})
+    throw error
+  }
 }
 
 export function wrapToolHandler(

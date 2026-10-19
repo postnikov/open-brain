@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import { restClientName, withRestActivity } from '../../activity/middleware.js'
 import { clampFloat, clampInt, isValidUuid, json, parseJsonBody, thoughtToJson, EPISTEMIC_STATUSES, UUID_RE, type Route } from '../http.js'
 
 const updateThoughtSchema = z.object({
@@ -8,10 +9,20 @@ const updateThoughtSchema = z.object({
   tags: z.array(z.string().max(100)).max(50).optional(),
 })
 
+const scopeList = z.array(z.string().min(1).max(100)).max(20)
+
 const openSchema = z.object({
   ids: z.array(z.string().regex(UUID_RE)).min(1).max(10),
   recall_id: z.string().regex(UUID_RE).optional(),
+  sources: scopeList.optional(),
+  tags: scopeList.optional(),
 })
+
+/** Repeated or comma-separated query values; absent parameter = no filter, present but empty = allow nothing. */
+function listParam(url: URL, name: string): string[] | undefined {
+  if (!url.searchParams.has(name)) return undefined
+  return url.searchParams.getAll(name).flatMap((v) => v.split(',')).map((v) => v.trim()).filter((v) => v.length > 0).slice(0, 20)
+}
 
 const weightSchema = z.object({
   direction: z.enum(['fade', 'amplify']),
@@ -35,7 +46,7 @@ export const thoughtRoutes: readonly Route[] = [
     // Two-step recall, step 1: pointers without text (used by the worker recall hook).
     method: 'GET',
     pattern: '/api/recall',
-    handler: async ({ res, url, services }) => {
+    handler: async ({ req, res, url, services }) => {
       const query = url.searchParams.get('q')
       if (!query) {
         json(res, { error: 'Missing query parameter "q"' }, 400)
@@ -45,7 +56,10 @@ export const thoughtRoutes: readonly Route[] = [
       const minSimilarity = url.searchParams.has('min_similarity')
         ? clampFloat(url.searchParams.get('min_similarity'), services.config.memory.recall_min_similarity, 0, 1)
         : undefined
-      json(res, await services.recallService.recall(query, { limit, minSimilarity, includeInactive: url.searchParams.get('include_inactive') === 'true' }))
+      const scope = { sources: listParam(url, 'source'), tags: listParam(url, 'tag') }
+      const client = restClientName(req.headers['x-open-brain-client'])
+      json(res, await withRestActivity(services.activityLogger, 'brain_recall', client, { query, limit, sources: scope.sources, tags: scope.tags }, () =>
+        services.recallService.recall(query, { limit, minSimilarity, includeInactive: url.searchParams.get('include_inactive') === 'true', scope })))
     },
   },
   {
@@ -54,7 +68,9 @@ export const thoughtRoutes: readonly Route[] = [
     pattern: '/api/open',
     handler: async ({ req, res, services }) => {
       const body = openSchema.parse(await parseJsonBody(req))
-      json(res, await services.recallService.open(body.ids, body.recall_id))
+      const client = restClientName(req.headers['x-open-brain-client'])
+      json(res, await withRestActivity(services.activityLogger, 'brain_open', client, { ids: body.ids, recall_id: body.recall_id, sources: body.sources, tags: body.tags }, () =>
+        services.recallService.open(body.ids, body.recall_id, { sources: body.sources, tags: body.tags })))
     },
   },
   {

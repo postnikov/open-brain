@@ -67,6 +67,15 @@ export interface RecallPointer {
   readonly score: number
 }
 
+/**
+ * Allow-list for recall and open. A defined list limits results to thoughts whose source is in
+ * `sources` and/or that carry at least one of `tags`; an empty list allows nothing (fail closed).
+ */
+export interface RecallScope {
+  readonly sources?: readonly string[]
+  readonly tags?: readonly string[]
+}
+
 /** In-place edits are metadata only: new text is a new version (createSuperseding). */
 export interface UpdateThoughtInput {
   readonly title?: string
@@ -139,9 +148,9 @@ export interface ThoughtsRepository {
   readonly createSuperseding: (input: CreateThoughtInput, supersede: SupersedeInput) => Promise<Thought>
   /** Undo a replacement mark; the newer thought keeps its `supersedes` provenance. */
   readonly unsupersede: (id: string) => Promise<Thought | null>
-  readonly recall: (embedding: readonly number[], limit: number, minSimilarity: number, hotBoost: number, includeInactive?: boolean) => Promise<readonly RecallPointer[]>
-  /** Full text for chosen ids; counts the open (drives the hot tier). */
-  readonly open: (ids: readonly string[]) => Promise<readonly Thought[]>
+  readonly recall: (embedding: readonly number[], limit: number, minSimilarity: number, hotBoost: number, includeInactive?: boolean, scope?: RecallScope) => Promise<readonly RecallPointer[]>
+  /** Full text for chosen ids; counts the open (drives the hot tier). Ids outside `scope` are neither returned nor counted. */
+  readonly open: (ids: readonly string[], scope?: RecallScope) => Promise<readonly Thought[]>
   readonly refreshTiers: (policy: TierPolicy) => Promise<TierRefresh>
 }
 

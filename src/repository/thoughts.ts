@@ -1,7 +1,7 @@
 import { sql, desc, eq, and, gte, lte, isNull, inArray, type SQL } from 'drizzle-orm'
 import { thoughts, dismissedPairs } from '../db/schema.js'
 import type { Database } from '../db/connection.js'
-import { memoryStatus, type Thought, type CreateThoughtInput, type UpdateThoughtInput, type SearchFilters, type SearchResult, type ThoughtStats, type DuplicatePair, type OrphanTag, type ThoughtsRepository, type MemoryTier, type RecallPointer, type SupersedeInput, type TierPolicy, type TierRefresh } from './types.js'
+import { memoryStatus, type Thought, type CreateThoughtInput, type UpdateThoughtInput, type SearchFilters, type SearchResult, type ThoughtStats, type DuplicatePair, type OrphanTag, type ThoughtsRepository, type MemoryTier, type RecallPointer, type RecallScope, type SupersedeInput, type TierPolicy, type TierRefresh } from './types.js'
 import { DatabaseError } from '../shared/errors.js'
 
 function toThought(row: typeof thoughts.$inferSelect): Thought {
@@ -36,6 +36,18 @@ const date = (v: unknown): Date | null => (v ? new Date(v as string) : null)
 
 /** Default visibility: not replaced and still valid. Raw SQL callers use the same predicate. */
 const LIVE_SQL = sql.raw('superseded_by IS NULL AND (valid_to IS NULL OR valid_to > NOW())')
+
+/** SQL predicate for a recall scope; an empty list matches nothing. */
+function scopeSql(scope?: RecallScope): SQL {
+  const parts: SQL[] = []
+  if (scope?.sources) {
+    parts.push(scope.sources.length > 0 ? sql`source IN (${sql.join(scope.sources.map((s) => sql`${s}`), sql`, `)})` : sql`FALSE`)
+  }
+  if (scope?.tags) {
+    parts.push(scope.tags.length > 0 ? sql`tags && ${sql`ARRAY[${sql.join(scope.tags.map((t) => sql`${t}`), sql`, `)}]::text[]`}` : sql`FALSE`)
+  }
+  return parts.length > 0 ? sql.join(parts, sql` AND `) : sql`TRUE`
+}
 const liveFor = (alias: string) => sql.raw(`${alias}.superseded_by IS NULL AND (${alias}.valid_to IS NULL OR ${alias}.valid_to > NOW())`)
 
 function rawRowToThought(row: Record<string, unknown>): Thought {
@@ -182,7 +194,7 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
       }
     },
 
-    async recall(embedding, limit, minSimilarity, hotBoost, includeInactive = false): Promise<readonly RecallPointer[]> {
+    async recall(embedding, limit, minSimilarity, hotBoost, includeInactive = false, scope?: RecallScope): Promise<readonly RecallPointer[]> {
       try {
         const vectorStr = `[${[...embedding].join(',')}]`
         const live = includeInactive ? sql`TRUE` : LIVE_SQL
@@ -192,7 +204,7 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
             (1 - (embedding <=> ${vectorStr}::vector)) * COALESCE(weight, 1.0) AS similarity,
             (1 - (embedding <=> ${vectorStr}::vector)) * COALESCE(weight, 1.0) + CASE WHEN tier = 'hot' THEN ${hotBoost}::float8 ELSE 0 END AS ranked
           FROM thoughts
-          WHERE composted_at IS NULL AND embedding IS NOT NULL AND ${live}
+          WHERE composted_at IS NULL AND embedding IS NOT NULL AND ${live} AND ${scopeSql(scope)}
             AND (1 - (embedding <=> ${vectorStr}::vector)) * COALESCE(weight, 1.0) >= ${minSimilarity}
           ORDER BY ranked DESC
           LIMIT ${limit}
@@ -213,12 +225,12 @@ export function createThoughtsRepository(db: Database): ThoughtsRepository {
       }
     },
 
-    async open(ids: readonly string[]): Promise<readonly Thought[]> {
+    async open(ids: readonly string[], scope?: RecallScope): Promise<readonly Thought[]> {
       if (ids.length === 0) return []
       try {
         const rows = await db.update(thoughts)
           .set({ openCount: sql`${thoughts.openCount} + 1`, lastOpenedAt: sql`NOW()` })
-          .where(inArray(thoughts.id, [...ids]))
+          .where(and(inArray(thoughts.id, [...ids]), scopeSql(scope)))
           .returning()
         const byId = new Map(rows.map((r) => [r.id, toThought(r)]))
         return ids.flatMap((id) => byId.get(id) ?? [])

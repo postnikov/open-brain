@@ -265,6 +265,8 @@ Open Brain предоставляет 12 MCP tools, доступных из Clau
 | `query` | string | да | Что нужно вспомнить |
 | `limit` | number | нет (из конфига) | Максимум указателей (1-10) |
 | `include_inactive` | boolean | нет (false) | Показать и заменённые/просроченные |
+| `sources` | string[] | нет | Только мысли с `source` из списка; пустой список — ничего |
+| `tags` | string[] | нет | Только мысли хотя бы с одним из тегов; пустой список — ничего |
 
 ### brain_open
 Шаг 2: полный текст выбранных мыслей (до 10), source_ref, жив ли исходный файл и не изменился ли он, цепочка замен.
@@ -273,6 +275,7 @@ Open Brain предоставляет 12 MCP tools, доступных из Clau
 |----------|-----|-------------|----------|
 | `ids` | UUID[] | да | ID из `brain_recall` (1-10) |
 | `recall_id` | UUID | нет | `recall_id` из `brain_recall` — для трассировки |
+| `sources`, `tags` | string[] | нет | Та же область, что у `brain_recall`: id вне области попадают в `missing` и не считаются открытыми |
 
 ### brain_search
 Семантический поиск по всем мыслям.
@@ -396,7 +399,7 @@ Open Brain предоставляет 12 MCP tools, доступных из Clau
 | Метод | Endpoint | Описание |
 |-------|----------|----------|
 | GET | `/api/brain/status` | Сводный статус (stream + distillation + thoughts) |
-| GET | `/api/recall?q=query&limit=8&min_similarity=0.3` | Двухшаговое вспоминание, шаг 1: только указатели (`limit` ≤ 10, `include_inactive=true`) |
+| GET | `/api/recall?q=query&limit=8&min_similarity=0.3` | Двухшаговое вспоминание, шаг 1: только указатели (`limit` ≤ 10, `include_inactive=true`, область — `source=a,b` и `tag=x`, повторяемые) |
 | GET | `/api/search?q=query&limit=10` | Семантический поиск |
 | GET | `/api/recent?limit=20&source=obsidian` | Последние записи |
 | GET | `/api/timeline?q=topic&limit=30` | Хронологический поиск |
@@ -410,7 +413,7 @@ Open Brain предоставляет 12 MCP tools, доступных из Clau
 | GET | `/api/stream?limit=50&session_id=...&status=pending` | Блоки стрима |
 | GET | `/api/stream/sessions?limit=50` | Сессии стрима |
 | GET | `/api/stream/stats` | Статистика стрима |
-| GET | `/api/activity?limit=50&tool=brain_search` | Лог MCP-вызовов |
+| GET | `/api/activity?limit=50&tool=brain_search` | Лог MCP-вызовов; REST `/api/recall` и `/api/open` пишутся туда же как `brain_recall`/`brain_open` с клиентом `rest:<X-Open-Brain-Client>` |
 | GET | `/api/activity/stats` | Статистика активности |
 | GET | `/api/import/status` | Прогресс импорта |
 
@@ -418,7 +421,7 @@ Open Brain предоставляет 12 MCP tools, доступных из Clau
 
 | Метод | Endpoint | Описание |
 |-------|----------|----------|
-| POST | `/api/open` | Шаг 2: полный текст по `{ids, recall_id?}` + состояние источника |
+| POST | `/api/open` | Шаг 2: полный текст по `{ids, recall_id?, sources?, tags?}` + состояние источника |
 | PUT | `/api/thoughts/:id` | Заголовок и теги — на месте; смена текста создаёт новую мысль с `supersedes` (в ответе `previous_id`) |
 | POST | `/api/thoughts/:id/unsupersede` | Снять отметку «заменена» (новая версия остаётся) |
 | DELETE | `/api/thoughts/:id` | Удалить мысль |
