@@ -72,4 +72,32 @@ export const systemRoutes: readonly Route[] = [
       })
     },
   },
+  {
+    // Compact stats card for a local dashboard: { title, items[] } — thoughts, last 7 days,
+    // pending stream blocks, distillation cost over 30 days. Behind the same bearer auth as /api/*.
+    method: 'GET',
+    pattern: '/api/stats/card',
+    handler: async ({ res, services }) => {
+      const [streamStats, thoughtStats, recentRuns] = await Promise.all([
+        services.streamRepository.getStats(),
+        services.repository.getStats(),
+        services.distillationRepo.getRecentRuns(100),
+      ])
+
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000
+      const monthlyCost = recentRuns
+        .filter((r) => r.createdAt && r.createdAt.getTime() > thirtyDaysAgo)
+        .reduce((sum, r) => sum + r.estimatedCost, 0)
+
+      json(res, {
+        title: 'база знаний',
+        items: [
+          { label: 'мыслей', value: thoughtStats.total },
+          { label: 'за 7д', value: `+${thoughtStats.last7Days}` },
+          { label: 'в очереди', value: streamStats.pendingBlocks },
+          { label: '30д', value: `$${monthlyCost.toFixed(2)}` },
+        ],
+      })
+    },
+  },
 ]
