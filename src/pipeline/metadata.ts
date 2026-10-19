@@ -6,13 +6,20 @@ import { MetadataExtractionError } from '../shared/errors.js'
 
 const metadataSchema = z.object({
   title: z.string(),
-  content_type: z.enum(['thought', 'note', 'idea', 'question', 'observation', 'decision']),
+  // An unknown type from the model (seen: "task", "request", "recommendation") must not fail the whole
+  // capture: the caller's content_type wins anyway, and the metadata type is only a fallback.
+  content_type: z.enum(['thought', 'note', 'idea', 'question', 'observation', 'decision']).catch('thought'),
   tags: z.array(z.string()).min(1).max(7),
   topics: z.array(z.string()).min(1).max(3),
   sentiment: z.enum(['positive', 'negative', 'neutral', 'mixed']),
 })
 
 export type ExtractedMetadata = z.infer<typeof metadataSchema>
+
+/** Parse and validate the metadata model's JSON answer. */
+export function parseMetadata(raw: string): ExtractedMetadata {
+  return metadataSchema.parse(JSON.parse(raw))
+}
 
 export interface MetadataService {
   readonly extract: (content: string) => Promise<ExtractedMetadata>
@@ -64,8 +71,7 @@ export function createMetadataService(apiKey: string, model: string): MetadataSe
           throw new MetadataExtractionError('No response from metadata model')
         }
 
-        const parsed = JSON.parse(raw)
-        const validated = metadataSchema.parse(parsed)
+        const validated = parseMetadata(raw)
 
         logger.debug({ title: validated.title, tags: validated.tags }, 'Metadata extracted')
         return validated
