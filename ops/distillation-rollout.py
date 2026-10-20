@@ -7,7 +7,7 @@ http=importlib.util.module_from_spec(spec);spec.loader.exec_module(http)
 
 def planned(raw, maintenance):
     value=plistlib.loads(raw)
-    if value['ProgramArguments'][-1]!=str(ROOT/'src/server-hardened.ts'):
+    if value['ProgramArguments'][-1] not in (str(ROOT/'src/server-hardened.ts'),str(ROOT/'ops/launch-server.sh')):
         raise ValueError('Hardened HTTP entry required')
     env=value.setdefault('EnvironmentVariables',{})
     if maintenance:
@@ -41,6 +41,7 @@ def main():
         http.atomic(a.state,(json.dumps(state,indent=2)+'\n').encode())
     target=f'gui/{os.getuid()}/com.open-brain.server'
     node=plistlib.loads(raw)['ProgramArguments'][0]
+    if pathlib.Path(node).name=='bash':node='/opt/homebrew/bin/node'  # keychain wrapper entry
     def run(args,name):
         result=subprocess.run([node,*args],cwd=ROOT,capture_output=True,timeout=600)
         if result.returncode:raise ValueError(f'{name} failed (private diagnostics suppressed)')

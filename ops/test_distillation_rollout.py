@@ -6,6 +6,10 @@ m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 class RolloutTests(unittest.TestCase):
     def raw(self):
         return plistlib.dumps({'ProgramArguments':['node','tsx',str(m.ROOT/'src/server-hardened.ts')], 'EnvironmentVariables':{'OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE':'fixture','OPEN_BRAIN_DISABLE_CLEANUP':'1','UNRELATED':'same'}})
+    def test_keychain_wrapper_entry_is_accepted(self):
+        raw=plistlib.dumps({'ProgramArguments':['/bin/bash',str(m.ROOT/'ops/launch-server.sh')],'EnvironmentVariables':{'UNRELATED':'same'}})
+        value=plistlib.loads(m.planned(raw,True))
+        self.assertEqual(value['EnvironmentVariables']['OPEN_BRAIN_MAINTENANCE'],'1')
     def test_activation_removes_only_pause_flags(self):
         value=plistlib.loads(m.planned(self.raw(),False))
         self.assertEqual(value['EnvironmentVariables'],{'OPEN_BRAIN_HTTP_KEYCHAIN_SERVICE':'fixture','UNRELATED':'same'})

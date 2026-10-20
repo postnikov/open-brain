@@ -21,7 +21,9 @@ paths/thresholds, never credentials:
 }
 ```
 
-Connection precedence matches the installed server: launchd DATABASE_URL, then
+Connection precedence matches the installed server: launchd DATABASE_URL (since
+2026-10-20 the plist carries none: `ops/launch-server.sh` reads it from the login
+Keychain `vibe/open-brain/DATABASE_URL`, so backup falls through), then
 repository dotenv DATABASE_URL, then explicit application database config. Invalid
 configuration fails; there is no database fallback. Source is local-only. The
 server plist is read in memory; libpq receives a temporary 0600 PGPASSFILE, never a
