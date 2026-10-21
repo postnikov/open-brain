@@ -10,7 +10,7 @@ try:
     root = pathlib.Path(__file__).resolve().parents[1]
     args = list(plist['ProgramArguments'])
     if args[-1] == str(root / 'ops/launch-server.sh'):
-        # Keychain wrapper entry: DATABASE_URL then comes from the repository .env.
+        # The config loader resolves the Keychain service from the inherited plist.
         args = ['/opt/homebrew/bin/node', str(root / 'node_modules/.bin/tsx'), str(root / 'src/index.ts')]
     elif args[-1] in [str(root / 'src/server-hardened.ts'), str(root / 'src/server.ts')]:
         args[-1] = str(root / 'src/index.ts')

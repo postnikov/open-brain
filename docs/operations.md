@@ -21,14 +21,42 @@ paths/thresholds, never credentials:
 }
 ```
 
-Connection precedence matches the installed server: launchd DATABASE_URL (since
-2026-10-20 the plist carries none: `ops/launch-server.sh` reads it from the login
-Keychain `vibe/open-brain/DATABASE_URL`, so backup falls through), then
-repository dotenv DATABASE_URL, then explicit application database config. Invalid
-configuration fails; there is no database fallback. Source is local-only. The
+Connection settings merge repository dotenv with the server plist (plist wins).
+`OPEN_BRAIN_DATABASE_URL_KEYCHAIN_SERVICE` selects login Keychain and takes
+precedence over any `DATABASE_URL` or application config. The shared reader
+`scripts/database-url.mjs` captures `~/.local/bin/secret get <service>` in memory,
+with a five-second timeout and sanitized errors. Missing, locked or malformed
+selected credentials fail closed; they never fall back to another database.
+Without a selector, portable deployments still use explicit `DATABASE_URL`, then
+explicit application database config. Backup ignores the operator's inherited
+`DATABASE_URL` and also works without an env file if the plist names the service.
+Source is local-only. The
 server plist is read in memory; libpq receives a temporary 0600 PGPASSFILE, never a
 password in argv. PostgreSQL errors are not printed. Custom dumps contain the full
 database, including vector extensions, indexes and all tables. No retention/deletion.
+
+On this Mac, `.env` contains only the non-secret service selector
+`OPEN_BRAIN_DATABASE_URL_KEYCHAIN_SERVICE=vibe/open-brain/DATABASE_URL` (2026-10-22).
+The application config loader (HTTP, stdio, CLI, migrations, import/export), Drizzle
+configuration, backup and DB operator scripts share the same credential resolver.
+`ops/stdio-maintenance.py` inherits the selector from the plist and keeps maintenance
+enabled. No schedules or ports changed and no application restart is required.
+The opt-in Compose app explicitly unsets the Mac selector before migration/startup
+and uses its own container `DATABASE_URL`; Keychain access is local to macOS.
+The previous `.env` is retained at
+`~/.open-brain/backups/env/.env.pre-dburl-keychain-20261022` (0600, parent 0700).
+To restore that file, run:
+
+```sh
+cp -p ~/.open-brain/backups/env/.env.pre-dburl-keychain-20261022 ~/Vibe/open-brain/.env
+```
+
+This explicitly restores plaintext credentials; the Keychain selector in the
+server plist still takes precedence for backup/server. The untouched legacy
+application config also contains a password copy; the live password matches the
+existing tracked demo default. Removing these copies and rotating the password
+requires separate scope. Verify the reader with `npx vitest run scripts/database-url.test.mjs` and a
+fresh `npm run backup` (read-only against the source DB).
 
 Counts and pg_dump use the **same exported repeatable-read snapshot**. The dump is
 fsynced, renamed, then its checksum manifest and latest pointer are atomically
@@ -355,4 +383,3 @@ the Codex snippet and the facade pass a reference; `brain_save` then answers wit
 and stores `unattributed:<source>`), recall limit/threshold/hot boost, and the tier policy.
 Vault copies are no longer imported: `index-obsidian.ts` refuses to run unless
 `OPEN_BRAIN_ALLOW_VAULT_COPY=1` (vault = source of truth, Max 2026-10-08).
-

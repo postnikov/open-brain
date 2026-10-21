@@ -1,10 +1,13 @@
 import { defineConfig } from 'drizzle-kit'
+import 'dotenv/config'
+import { getDatabaseUrl } from './src/config/loader.js'
+import { DEFAULT_CONFIG } from './src/config/defaults.js'
 
 export default defineConfig({
   schema: './src/db/schema.ts',
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? 'postgresql://open_brain:open_brain_local@localhost:5432/open_brain',
+    url: getDatabaseUrl(DEFAULT_CONFIG),
   },
 })

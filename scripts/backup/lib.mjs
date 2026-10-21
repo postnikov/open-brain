@@ -6,6 +6,7 @@ import { join, basename, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import pg from 'pg'
 import { parse } from 'dotenv'
+import { resolveDatabaseUrl } from '../database-url.mjs'
 const exec = promisify(execFile)
 export const quote = s => '"' + s.replaceAll('"', '""') + '"'
 export async function command(bin, args, env = process.env) {
@@ -22,11 +23,15 @@ export async function readConfig(path = process.env.OPEN_BRAIN_BACKUP_CONFIG || 
   }
   return c
 }
-export async function sourceConnection(c) {
-  // Same precedence as launchd server + dotenv/config. No permissive config fallback.
+export async function sourceConnection(c, readSecret) {
+  // Plist settings override dotenv; a selected Keychain source fails closed.
+  // Never inherit the operator's DATABASE_URL (it may target an unrelated DB).
   const plist = JSON.parse(await command('/usr/bin/plutil', ['-convert', 'json', '-o', '-', c.serverPlist]))
-  const env = { ...parse(await readFile(c.envFile)), ...plist.EnvironmentVariables }
-  if (env.DATABASE_URL) return new pg.Client({ connectionString: env.DATABASE_URL, connectionTimeoutMillis: 10_000 })
+  let dotenv = {}
+  try { dotenv = parse(await readFile(c.envFile)) } catch (error) { if (error.code !== 'ENOENT') throw error }
+  const env = { ...dotenv, ...plist.EnvironmentVariables }
+  const url = resolveDatabaseUrl(env, readSecret)
+  if (url) return new pg.Client({ connectionString: url, connectionTimeoutMillis: 10_000 })
   const { database } = JSON.parse(await readFile(c.appConfig, 'utf8'))
   if (!database?.database || !database?.user || !database?.host) throw new Error('Missing explicit database config')
   return new pg.Client({ ...database, connectionTimeoutMillis: 10_000 })

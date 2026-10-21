@@ -7,7 +7,7 @@ Personal memory service: TypeScript/Node.js (ESM), PostgreSQL + pgvector, Drizzl
 - `src/server-hardened.ts`: the authenticated HTTP entry (launchd, README quick start, Dockerfile). `src/server.ts`: legacy unauthenticated HTTP entry; since 2026-10-13 no npm script runs it (`npm run server` = `server:hardened`), the file stays for `ops/*rollout*.py` plist checks. Both serve `/mcp`, `/api/*`, static UI, `/health`, MCP sessions, scheduled cleanup and distillation.
 - `src/index.ts`: stdio MCP entry point; a separate process per client.
 - `src/cli.ts`: `brain` CLI. `src/bootstrap.ts` assembles the services used by all entry points.
-- `src/config/{schema,defaults,loader}.ts`: validated config; reads `~/.open-brain/config.json`, with `DATABASE_URL` overriding database connection settings. Loading missing config creates a default file.
+- `src/config/{schema,defaults,loader}.ts`: validated config; reads `~/.open-brain/config.json`. Shared `scripts/database-url.mjs` resolves a selected login Keychain service first, then portable `DATABASE_URL`, then config. Selected Keychain failure never falls back. Loading missing config creates a default file.
 - `src/db/`: pool, schema, and imperative migration entry point. `src/repository/`: thoughts, search, lifecycle, tags, duplicates.
 - `src/pipeline/`: embedding + metadata generation and capture/deduplication. These paths can call paid external AI APIs.
 - `src/stream/`: conversation blocks, TTL and cleanup. `src/distillation/`: extraction, run history, cost estimates and scheduler.
@@ -20,9 +20,9 @@ Personal memory service: TypeScript/Node.js (ESM), PostgreSQL + pgvector, Drizzl
 ## Local runtime and data
 
 - launchd: `~/Library/LaunchAgents/com.open-brain.server.plist`, label `com.open-brain.server`; runs `src/server-hardened.ts` via local `tsx` from this repository. Endpoint: `http://127.0.0.1:3100`; bearer required, including health.
-- DATABASE_URL (2026-10-20): login Keychain `vibe/open-brain/DATABASE_URL` (`secret set DATABASE_URL open-brain`); the plist runs `/bin/bash ops/launch-server.sh`, which reads it via `OPEN_BRAIN_DATABASE_URL_KEYCHAIN_SERVICE` and execs `server-hardened.ts` (fail closed, exit 78). The plist holds no secret values. Backup (`scripts/backup/lib.mjs`) and `ops/stdio-maintenance.py` get the URL from `.env`. Rollback: `cp -p ~/.open-brain/backups/launchagent/com.open-brain.server.plist.pre-dburl-keychain-20261020 ~/Library/LaunchAgents/com.open-brain.server.plist && launchctl kickstart -k gui/$(id -u)/com.open-brain.server`.
+- DATABASE_URL (2026-10-22): login Keychain `vibe/open-brain/DATABASE_URL` (`secret set DATABASE_URL open-brain`); the plist runs `/bin/bash ops/launch-server.sh` (fail closed, exit 78). `.env` now holds only `OPEN_BRAIN_DATABASE_URL_KEYCHAIN_SERVICE`, no URL/password. Backup and DB operator scripts use the selector from the server plist; stdio maintenance inherits it; application loader and Drizzle use the shared `scripts/database-url.mjs` reader (`secret get`, captured stdout, 5s timeout, sanitized errors). Portable explicit URLs/config remain supported without a selector. Env rollback: `cp -p ~/.open-brain/backups/env/.env.pre-dburl-keychain-20261022 ~/Vibe/open-brain/.env` (backup 0600, parent 0700). The unchanged legacy app config still has a password copy, reported separately. No service restart or schedule change for this cutover.
 - PostgreSQL database defaults to `open_brain` on local port 5432. Inspect effective `DATABASE_URL`/config without printing credentials. On this Mac, `homebrew.mxcl.postgresql@14` owns `/opt/homebrew/var/postgresql@14`; confirm its live plist before assuming that location elsewhere.
-- OpenAI key (2026-10-14): login Keychain `vibe/open-brain/OPENAI_API_KEY` (`secret set OPENAI_API_KEY open-brain`); the plist passes only the service name `OPEN_BRAIN_OPENAI_KEYCHAIN_SERVICE`, `src/security/openai-key.ts` reads it and wins over `OPENAI_API_KEY`; after rotating the key run `launchctl kickstart -k gui/$(id -u)/com.open-brain.server`. `.env` (git-ignored) keeps only `DATABASE_URL`. `~/.open-brain/config.json`: runtime settings. `~/.open-brain/server.log`: launchd stdout/stderr. `~/.open-brain/backups/`: backup script's default destination; existence does not establish a working backup schedule.
+- OpenAI key (2026-10-14): login Keychain `vibe/open-brain/OPENAI_API_KEY` (`secret set OPENAI_API_KEY open-brain`); the plist passes only the service name `OPEN_BRAIN_OPENAI_KEYCHAIN_SERVICE`, `src/security/openai-key.ts` reads it and wins over `OPENAI_API_KEY`; after rotating the key run `launchctl kickstart -k gui/$(id -u)/com.open-brain.server`. `.env` (git-ignored) holds the DB service selector only. `~/.open-brain/config.json`: runtime settings. `~/.open-brain/server.log`: launchd stdout/stderr. `~/.open-brain/backups/`: backup script's default destination; existence does not establish a working backup schedule.
 - Docker (2026-10-13): `docker compose up -d` = database only on `127.0.0.1:5432`; the app is opt-in (`--profile app`): `server-hardened.ts` with `OPEN_BRAIN_BIND_HOST=0.0.0.0`, accepted only with a non-empty `OPEN_BRAIN_ALLOWED_HOSTS` (`parseAllowedHosts` in `src/security/http.ts`), published on `127.0.0.1:3100`, token file bind-mounted read-only, user `OPEN_BRAIN_UID`. Never live-tested in Docker on this Mac (Docker Desktop off); covered by `src/security/http.test.ts` and an e2e of the entry with bind 0.0.0.0. Do not start either alongside the existing local production service (port 5432/3100 clash). Never run `docker compose config` without `-q`: it expands `.env` and prints the OpenAI key.
 
 ## Development and verification
@@ -35,7 +35,7 @@ Read-only inspection on the existing service:
 git status --short
 git log -5 --oneline
 claude mcp get open-brain  # real native connection check; never print auth-helper output
-launchctl print gui/$(id -u)/com.open-brain.server
+launchctl print gui/$(id -u)/com.open-brain.server | awk '/^[[:space:]]*(state|pid|last exit code) =/'
 npx tsc --noEmit
 npm test
 ```
@@ -62,6 +62,8 @@ npm test
 - `scripts/backup/{lib,cli}.mjs`: fail-fast full snapshot dump, atomic checksum manifest, independent age watchdog, and isolated Unix-socket cluster restore. `ops/install-backup-launchd.py` installs the three jobs; `docs/operations.md` is the runbook. Config: `~/.open-brain/backup.json` (paths/thresholds only).
 - Production backup is read-only. Restore never accepts a production DSN and retains its stopped scratch cluster. No automatic archive deletion. The same-disk backup does not cover disk loss.
 - `npm run test:backup` runs pure gates; set `OPEN_BRAIN_TEST_PG_BIN` for real synthetic PostgreSQL integration. No production connection in tests.
+- `scripts/database-url.test.mjs` checks source precedence, secret-helper error redaction, backup without `.env`, stdio maintenance and Compose startup. The Compose app unsets the Mac DB Keychain selector before using its explicit container URL.
+- Credential follow-up (2026-10-22): the live DB password matches the tracked demo default, including README/config/Compose. Treat those existing literals as exposed credentials; do not print them. Rotation and legacy app-config cleanup remain outside the env migration; see `scratchpad/report-ob-env-db-password-to-keychain.md`.
 
 ## Local HTTP hardening activated (2026-09-24)
 
@@ -92,4 +94,3 @@ npm test
 - `memory.require_source_ref=true` is live (2026-10-18 check): MCP `brain_save` without `source_ref` is rejected; the local facade passes `--source-ref`.
 - Recall scope (2026-10-19): `brain_recall`/`brain_open` and REST `/api/recall` (`source=`, `tag=`, repeatable or comma list) / `/api/open` (`sources`, `tags`) take an allow-list; `scopeSql` in `src/repository/thoughts.ts`. Empty list = nothing (fail closed); out-of-scope ids in open come back as `missing` and are not counted. Callers that must not see the whole corpus pass the scope on BOTH calls.
 - REST recall/open are written to `activity_log` as `brain_recall`/`brain_open` with client `rest:<X-Open-Brain-Client>` (`withRestActivity` in `src/activity/middleware.ts`); before 2026-10-19 REST reads were invisible there.
-

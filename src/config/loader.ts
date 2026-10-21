@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { logger } from '../shared/logger.js'
 import { configSchema, type AppConfig } from './schema.js'
 import { DEFAULT_CONFIG } from './defaults.js'
+import { resolveDatabaseUrl } from '../../scripts/database-url.mjs'
 
 const CONFIG_DIR = join(homedir(), '.open-brain')
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json')
@@ -28,9 +29,8 @@ export async function loadConfig(): Promise<AppConfig> {
 }
 
 export function getDatabaseUrl(config: AppConfig): string {
-  if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL
-  }
+  const url = resolveDatabaseUrl()
+  if (url) return url
 
   const { host, port, database, user, password } = config.database
   return `postgresql://${user}:${password}@${host}:${port}/${database}`
