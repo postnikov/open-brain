@@ -1,5 +1,45 @@
 # Operations: P0 hardening
 
+## Database password rotation (2026-10-22)
+
+`ops/rotate-db-password.mjs` is an explicit operator command, never a startup hook.
+Its `apply --production --state <path>` action takes and verifies a fresh backup,
+saves the previous URL in a separate Keychain rollback item, generates a 384-bit
+password in memory, updates the active Keychain entry through the fixed `secret`
+writer, then changes only the connected PostgreSQL role's password. It restarts
+the existing Open-Brain server job and takes another full backup. State contains
+service names/status/checksums only, under private `~/.open-brain/rotations/`.
+
+The SQL path uses a SCRAM verifier in a bound parameter and a transaction-local
+setting; plaintext never becomes SQL. Statement/parameter/extension logging is
+checked first. It does not modify HBA, schema or application records. A writer
+failure after a partial change triggers recovery through the authenticated session;
+an unresolved recovery is explicitly recorded, not reported as success.
+
+The current local connection accepts a deliberately incorrect password. Rotation
+updates the role and stored credential but does **not** enforce password auth on
+that route. `passwordAuthEnforced` and `oldPasswordRejected` record this limitation;
+do not claim that old credentials were revoked on production. Changing HBA needs
+a separately authorized task. Tests cover a separate real SCRAM-authenticated
+cluster, including old-password rejection, backup, failure recovery and rollback.
+
+One-command rollback of the 2026-10-22 rotation (restores the previous Keychain
+value, sets it as the role password, restarts the existing job and backs up):
+
+```sh
+node ~/Vibe/open-brain/ops/rotate-db-password.mjs rollback --production --state ~/.open-brain/rotations/db-password-20261022.json
+```
+
+The prior password is the value held by Keychain before the operation, retained
+there for rollback; the role's old verifier is not exported. Never revert the fixed
+secrets-manager writer to perform rollback. For new rotations, use a new state
+filename. An existing file is refused to protect recovery metadata.
+
+Verification: `OPEN_BRAIN_TEST_PG_BIN=/opt/homebrew/bin npx vitest run ops/rotate-db-password.test.mjs`;
+set `TMPDIR` to the task's private temporary directory. Real fixture clusters are
+stopped and retained. After live apply, verify native MCP stats/search and the
+HTTP consumers; a restart request alone does not establish client recovery.
+
 ## Full local backup (stage 1)
 
 `npm run backup`, `npm run backup:check`, `npm run backup:restore` use
@@ -31,8 +71,9 @@ Without a selector, portable deployments still use explicit `DATABASE_URL`, then
 explicit application database config. Backup ignores the operator's inherited
 `DATABASE_URL` and also works without an env file if the plist names the service.
 Source is local-only. The
-server plist is read in memory; libpq receives a temporary 0600 PGPASSFILE, never a
-password in argv. PostgreSQL errors are not printed. Custom dumps contain the full
+server plist is read in memory; libpq receives `PGPASSWORD` only in its child
+environment, never a password file or argv (2026-10-22 rotation requirement).
+Do not dump child environments; PostgreSQL/subprocess errors are sanitized. Custom dumps contain the full
 database, including vector extensions, indexes and all tables. No retention/deletion.
 
 On this Mac, `.env` contains only the non-secret service selector

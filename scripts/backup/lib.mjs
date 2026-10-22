@@ -57,15 +57,14 @@ export async function withLock(directory, name, fn) {
     return await fn()
   } finally { await rm(path, { recursive: true }) }
 }
-export async function libpqEnv(client, directory) {
+export async function libpqEnv(client) {
   const p = client.connectionParameters
   if (!['localhost', '127.0.0.1', '::1'].includes(p.host) && !p.host.startsWith('/')) throw new Error('Local database required')
   if (p.ssl) throw new Error('SSL connection needs an explicit libpq configuration')
-  const passfile = join(directory, `.pgpass-${randomUUID()}`)
-  const escape = s => String(s).replaceAll('\\', '\\\\').replaceAll(':', '\\:')
-  await writeFile(passfile, [p.host, p.port, p.database, p.user, p.password ?? ''].map(escape).join(':') + '\n', { mode: 0o600, flag: 'wx' })
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('PG') && k !== 'DATABASE_URL'))
-  return { passfile, env: { ...env, PGHOST: p.host, PGPORT: String(p.port), PGDATABASE: p.database, PGUSER: p.user, PGPASSFILE: passfile, PGCONNECT_TIMEOUT: '10', PGOPTIONS: '-c statement_timeout=600000 -c lock_timeout=10000' } }
+  // Child environment only: never write the rotated password to a .pgpass file
+  // or put it in pg_dump/pg_restore argv. command() suppresses subprocess errors.
+  return { env: { ...env, PGHOST: p.host, PGPORT: String(p.port), PGDATABASE: p.database, PGUSER: p.user, PGPASSWORD: p.password ?? '', PGCONNECT_TIMEOUT: '10', PGOPTIONS: '-c statement_timeout=600000 -c lock_timeout=10000' } }
 }
 export async function inventory(client) {
   const tables = (await client.query(`SELECT n.nspname AS schema,c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p') AND n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' ORDER BY 1,2`)).rows
@@ -113,7 +112,7 @@ export async function backup(c, { ifDue = false } = {}) {
       const major = Number(version.match(/PostgreSQL\) (\d+)/)?.[1])
       if (!major || major < Math.floor(server.version_num / 10000)) throw new Error('pg_dump is older than server')
       const objects = await inventory(client)
-      credentials = await libpqEnv(client, c.directory)
+      credentials = await libpqEnv(client)
       await command(join(c.pgBin, 'pg_dump'), ['--format=custom', '--lock-wait-timeout=10000', `--snapshot=${server.snapshot}`, `--file=${tmp}`], credentials.env)
       const size = (await stat(tmp)).size
       if (!size) throw new Error('Empty dump')
@@ -131,7 +130,6 @@ export async function backup(c, { ifDue = false } = {}) {
       return manifest
     } finally {
       await client.end().catch(() => {})
-      if (credentials) await rm(credentials.passfile, { force: true })
       await rm(tmp, { force: true })
     }
   })
