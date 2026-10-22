@@ -52,10 +52,16 @@ cp -p ~/.open-brain/backups/env/.env.pre-dburl-keychain-20261022 ~/Vibe/open-bra
 ```
 
 This explicitly restores plaintext credentials; the Keychain selector in the
-server plist still takes precedence for backup/server. The untouched legacy
-application config also contains a password copy; the live password matches the
-existing tracked demo default. Removing these copies and rotating the password
-requires separate scope. Verify the reader with `npx vitest run scripts/database-url.test.mjs` and a
+server plist still takes precedence for backup/server. The live password still
+matches the existing tracked demo default. The legacy app-config password field
+was removed on 2026-10-22 under the approved rotation brief; its private backup is
+`~/.open-brain/backups/db-password-rotation-20261022/config.json.before` (0600).
+Other config settings are unchanged. Rotation itself has not occurred: the current
+`secret set` helper forwards stdin values to a `security` argv argument. A caller
+using stdin alone does not meet the no-argv requirement. Fix and verify the writer
+in its own authorized scope before generating/storing a new DB password; see
+`scratchpad/report-c-3939dfe824252c1cbec1a622f9c1bf5b.md`.
+Verify the reader with `npx vitest run scripts/database-url.test.mjs` and a
 fresh `npm run backup` (read-only against the source DB).
 
 Counts and pg_dump use the **same exported repeatable-read snapshot**. The dump is
