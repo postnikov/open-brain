@@ -16,12 +16,13 @@ checked first. It does not modify HBA, schema or application records. A writer
 failure after a partial change triggers recovery through the authenticated session;
 an unresolved recovery is explicitly recorded, not reported as success.
 
-The current local connection accepts a deliberately incorrect password. Rotation
-updates the role and stored credential but does **not** enforce password auth on
-that route. `passwordAuthEnforced` and `oldPasswordRejected` record this limitation;
-do not claim that old credentials were revoked on production. Changing HBA needs
-a separately authorized task. Tests cover a separate real SCRAM-authenticated
-cluster, including old-password rejection, backup, failure recovery and rollback.
+The rotation itself did not change HBA: its historical state records
+`passwordAuthEnforced=false` and `oldPasswordRejected=false`. The separately
+approved 2026-10-26 follow-up now enforces SCRAM for the `open_brain` database/role
+pair on Unix socket, 127.0.0.1 and ::1, and verified old/incorrect credential
+rejection on all three routes. Other pairs retain their original trust rules.
+Current authentication evidence is the scoped-HBA state below; do not reinterpret
+the historical rotation state as a fresh authentication check.
 
 One-command rollback of the 2026-10-26 rotation (restores the previous Keychain
 value, sets it as the role password, restarts the existing job and backs up):
@@ -47,6 +48,56 @@ was exercised twice on an isolated SCRAM-authenticated PostgreSQL fixture before
 production apply; live rollback was not needed. See
 `scratchpad/report-c-3939dfe8-rotate.md` for evidence and scope limits. The failed
 2026-10-22 state is historical; use the 2026-10-26 state for this rollback.
+
+## Scoped HBA enforcement (2026-10-26)
+
+`ops/scoped-db-auth.mjs` reads a prepared metadata-only state under
+`~/.open-brain/rotations/`. Live state: `hba-20261026.json`. Before apply, the original
+`pg_hba.conf` was copied to `~/.open-brain/backups/hba-20261026/pg_hba.conf.before`
+(0600, directory 0700). The state identifies the intended cluster and contains
+both HBA hashes, its admin socket, the affected database/role pair, and a pointer
+to the rotation state. It contains no password or credential URL.
+
+Only these rules were inserted before the original file:
+
+```text
+local open_brain open_brain scram-sha-256
+host open_brain open_brain 127.0.0.1/32 scram-sha-256
+host open_brain open_brain ::1/128 scram-sha-256
+```
+
+Every original rule remains byte-for-byte. The local `admin` maintenance path and
+other database/role pairs still use their existing rules. This is scoped access
+control, not whole-cluster hardening. Changing the general trust rules requires a
+separate decision. No database/application restart was needed: reload applied the
+rules, and the HTTP server had no DB connections before its first post-reload MCP
+check. Backup, DB ops and stdio maintenance each opened new connections.
+
+Verify the active scope (nine fresh connections: current, old and random
+credentials on each of the three routes):
+
+```sh
+node ~/Vibe/open-brain/ops/scoped-db-auth.mjs verify --production --state ~/.open-brain/rotations/hba-20261026.json
+```
+
+Rollback HBA only, preserving the rotated password:
+
+```sh
+node ~/Vibe/open-brain/ops/scoped-db-auth.mjs rollback --production --state ~/.open-brain/rotations/hba-20261026.json
+```
+
+Apply automatically restores/reloads the original HBA if parser, reload or its
+authentication matrix fails. If an external consumer check fails after apply,
+execute the rollback command immediately and report it. Rollback refuses an
+unexpectedly changed live HBA or corrupted backup instead of overwriting it.
+Its scratch directory is recreated privately if cleanup has removed it.
+
+Before live apply, the same functions were tested on a real isolated PostgreSQL
+cluster, including other database/role pairs and recovery after a simulated
+consumer refusal. The current URL parser needs the supported explicit `host=::1`
+parameter for IPv6 probes; the regression test guards the bracketed-host failure.
+Report and remaining old-value file locations:
+`scratchpad/report-c-3939dfe8-followup.md`.
 
 ## Full local backup (stage 1)
 
