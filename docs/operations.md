@@ -1,6 +1,6 @@
 # Operations: P0 hardening
 
-## Database password rotation (2026-10-22)
+## Database password rotation (completed 2026-10-26)
 
 `ops/rotate-db-password.mjs` is an explicit operator command, never a startup hook.
 Its `apply --production --state <path>` action takes and verifies a fresh backup,
@@ -23,11 +23,11 @@ do not claim that old credentials were revoked on production. Changing HBA needs
 a separately authorized task. Tests cover a separate real SCRAM-authenticated
 cluster, including old-password rejection, backup, failure recovery and rollback.
 
-One-command rollback of the 2026-10-22 rotation (restores the previous Keychain
+One-command rollback of the 2026-10-26 rotation (restores the previous Keychain
 value, sets it as the role password, restarts the existing job and backs up):
 
 ```sh
-node ~/Vibe/open-brain/ops/rotate-db-password.mjs rollback --production --state ~/.open-brain/rotations/db-password-20261022.json
+node ~/Vibe/open-brain/ops/rotate-db-password.mjs rollback --production --state ~/.open-brain/rotations/db-password-20261026.json
 ```
 
 The prior password is the value held by Keychain before the operation, retained
@@ -39,6 +39,14 @@ Verification: `OPEN_BRAIN_TEST_PG_BIN=/opt/homebrew/bin npx vitest run ops/rotat
 set `TMPDIR` to the task's private temporary directory. Real fixture clusters are
 stopped and retained. After live apply, verify native MCP stats/search and the
 HTTP consumers; a restart request alone does not establish client recovery.
+
+The 2026-10-26 live run completed with verified dumps before and after the change,
+Keychain read-back, fresh DB ops connections, native MCP stats/search, facade and
+worker-hook recall, and HTTP health/stats checks. The same rollback implementation
+was exercised twice on an isolated SCRAM-authenticated PostgreSQL fixture before
+production apply; live rollback was not needed. See
+`scratchpad/report-c-3939dfe8-rotate.md` for evidence and scope limits. The failed
+2026-10-22 state is historical; use the 2026-10-26 state for this rollback.
 
 ## Full local backup (stage 1)
 
@@ -92,16 +100,18 @@ To restore that file, run:
 cp -p ~/.open-brain/backups/env/.env.pre-dburl-keychain-20261022 ~/Vibe/open-brain/.env
 ```
 
-This explicitly restores plaintext credentials; the Keychain selector in the
-server plist still takes precedence for backup/server. The live password still
-matches the existing tracked demo default. The legacy app-config password field
+This explicitly restores the old plaintext credentials; the Keychain selector in
+the server plist still takes precedence for backup/server. The live role password
+and Keychain entry were rotated on 2026-10-26. The legacy app-config password field
 was removed on 2026-10-22 under the approved rotation brief; its private backup is
 `~/.open-brain/backups/db-password-rotation-20261022/config.json.before` (0600).
-Other config settings are unchanged. Rotation itself has not occurred: the current
-`secret set` helper forwards stdin values to a `security` argv argument. A caller
-using stdin alone does not meet the no-argv requirement. Fix and verify the writer
-in its own authorized scope before generating/storing a new DB password; see
-`scratchpad/report-c-3939dfe824252c1cbec1a622f9c1bf5b.md`.
+Other config settings are unchanged. The writer blocker recorded on 2026-10-22
+was resolved by secrets-manager `ba3000f`: `security -q -i` receives the value on
+stdin, with fixed argv. The installed writer's 15 synthetic tests passed before
+live rotation. A caller using stdin alone does not meet the no-argv requirement;
+verify the entire child-process path. Historical evidence is in
+`scratchpad/report-c-3939dfe824252c1cbec1a622f9c1bf5b.md`; completion evidence is in
+`scratchpad/report-c-3939dfe8-rotate.md`.
 Verify the reader with `npx vitest run scripts/database-url.test.mjs` and a
 fresh `npm run backup` (read-only against the source DB).
 
