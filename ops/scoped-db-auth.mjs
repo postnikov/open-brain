@@ -17,7 +17,7 @@ export function scopedHba(original, database, role) {
   return `${marker}\nlocal ${database} ${role} scram-sha-256\nhost ${database} ${role} 127.0.0.1/32 scram-sha-256\nhost ${database} ${role} ::1/128 scram-sha-256\n\n${original}`
 }
 
-async function replaceHba(path, contents, scratch) {
+export async function replaceHba(path, contents, scratch) {
   await privateDirectory(scratch)
   const mode = (await stat(path)).mode & 0o777
   const dir = await mkdtemp(join(scratch, 'hba-write-'))

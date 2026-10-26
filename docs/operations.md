@@ -20,7 +20,7 @@ The rotation itself did not change HBA: its historical state records
 `passwordAuthEnforced=false` and `oldPasswordRejected=false`. The separately
 approved 2026-10-26 follow-up now enforces SCRAM for the `open_brain` database/role
 pair on Unix socket, 127.0.0.1 and ::1, and verified old/incorrect credential
-rejection on all three routes. Other pairs retain their original trust rules.
+rejection on all three routes. The later full-cluster stage below removed the remaining trust rules.
 Current authentication evidence is the scoped-HBA state below; do not reinterpret
 the historical rotation state as a fresh authentication check.
 
@@ -49,7 +49,72 @@ production apply; live rollback was not needed. See
 `scratchpad/report-c-3939dfe8-rotate.md` for evidence and scope limits. The failed
 2026-10-22 state is historical; use the 2026-10-26 state for this rollback.
 
+## Current full-cluster policy (2026-10-26, 20:09)
+
+All active HBA rules require authentication. TCP on 127.0.0.1/::1, including
+replication, uses SCRAM. Unix sockets use peer for DB role `admin` only, with no
+user map (the OS username must equal the DB role), and SCRAM for other roles.
+The previous Open-Brain pair-specific rules remain valid at the top of the file.
+`admin` has no password configured: use its Unix socket rather than TCP.
+
+For Max and agents running as OS user `admin`:
+
+```sh
+psql -X -h /tmp -U admin -d postgres
+pg_dump -Fc open_brain --file /path/to/private-backup.dump
+```
+
+The archive backup's existing implicit Unix-socket commands need no secret and
+were checked by making readable full dumps of open_brain, synarchic and
+elfkitchen_development. Do not inherit PGHOST=localhost into that job.
+Open-Brain's own backup and server continue reading their existing Keychain entry.
+
+Synarchic local development on **5432** reads `vibe/synarchic/DATABASE_URL` from
+login Keychain through `~/Vibe/synarchic/scripts/local-db.mjs`. Example from its
+backend directory:
+
+```sh
+node ../scripts/local-db.mjs --asyncpg .venv/bin/uvicorn app.main:app --reload --port 8000
+```
+
+Do not print the wrapper's environment. The Docker-oriented root `.env` and e2e
+configuration on **5433** are separate and were not migrated. The wrapper validates
+host, role, database and port from `scripts/local-db.json`; an unrelated endpoint
+fails before a child starts. Role `kisadrakon` retains its pre-existing SCRAM
+verifier; no current consumer was found, and its correct password was not tested.
+
+Current metadata-only state: `~/.open-brain/rotations/cluster-hba-20261026.json`.
+Original scoped HBA: `~/.open-brain/backups/cluster-20261026/pg_hba.conf.before`.
+The state directory is 0700, backup/state files 0600. The operator records hashes
+before replacing HBA, checks PostgreSQL parsing, reloads, and opens fresh positive
+and negative connections. A failed apply verification restores/reloads the backup;
+if a later consumer fails, immediately run the same rollback command:
+
+```sh
+node ~/Vibe/open-brain/ops/cluster-db-auth.mjs rollback --production --state ~/.open-brain/rotations/cluster-hba-20261026.json
+```
+
+This returns HBA to the preceding scoped stage (general trust for other roles),
+while leaving the rotated passwords in Keychain. It refuses an unexpected later
+HBA change or a damaged backup. Do not use earlier scoped-state rollback commands
+against this later policy.
+
+Repeat the current matrix without changing HBA or passwords:
+
+```sh
+node ~/Vibe/open-brain/ops/cluster-db-auth.mjs verify --production --state ~/.open-brain/rotations/cluster-hba-20261026.json
+```
+
+Before rollout, a real isolated PostgreSQL fixture verified matching OS identity,
+rejection of a claimed different superuser identity, SCRAM, and full HBA rollback
+after a consumer refusal. Live guest-uid impersonation was not performed: the
+approved source and delivered-package evidence establish blocked TCP probes, and
+peer's identity binding plus the live rule audit cover the Unix-socket policy.
+No ACL, PF, OS account, listener, schedule, data, schema or VPS change was made.
+
 ## Scoped HBA enforcement (2026-10-26)
+
+Historical stage; the current full-cluster section above supersedes its policy and rollback selection.
 
 `ops/scoped-db-auth.mjs` reads a prepared metadata-only state under
 `~/.open-brain/rotations/`. Live state: `hba-20261026.json`. Before apply, the original
@@ -66,10 +131,9 @@ host open_brain open_brain 127.0.0.1/32 scram-sha-256
 host open_brain open_brain ::1/128 scram-sha-256
 ```
 
-Every original rule remains byte-for-byte. The local `admin` maintenance path and
-other database/role pairs still use their existing rules. This is scoped access
-control, not whole-cluster hardening. Changing the general trust rules requires a
-separate decision. No database/application restart was needed: reload applied the
+At that stage every original rule remained byte-for-byte. The later approved
+full-cluster step replaced the general trust rules. No database/application
+restart was needed for the scoped step: reload applied the
 rules, and the HTTP server had no DB connections before its first post-reload MCP
 check. Backup, DB ops and stdio maintenance each opened new connections.
 
