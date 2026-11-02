@@ -1,5 +1,7 @@
 # Open Brain
 
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/postnikov/badge.svg)](https://hub.xerj.org/contributors/postnikov)
+
 A personal second brain that captures thoughts from anywhere, finds them by meaning, and lets ideas naturally mature or dissolve.
 
 Built on semantic search (OpenAI embeddings + pgvector), accessible via Web UI, CLI, and MCP protocol for Claude Desktop, Cursor, and other AI clients.
