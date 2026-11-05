@@ -1,5 +1,11 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+
+cd "$(dirname "$0")"
+case "${1:-}" in
+  ""|--env-only) ;;
+  *) echo "Usage: ./setup.sh [--env-only]" >&2; exit 1 ;;
+esac
 
 # Colors
 GREEN='\033[0;32m'
@@ -30,43 +36,20 @@ if [ "$NODE_VER" -lt 20 ]; then
 fi
 info "Node.js $(node -v) OK"
 
+# Generate credentials without installing dependencies or touching PostgreSQL.
+node scripts/setup.mjs env
+if [ "${1:-}" = "--env-only" ]; then
+  info "Database credentials are in .env. Add OPENAI_API_KEY before starting the app."
+  exit 0
+fi
+
 if ! command -v psql &>/dev/null; then
   fail "PostgreSQL client (psql) not found. Install PostgreSQL 14+"
 fi
-info "PostgreSQL client OK"
-
 if ! command -v npm &>/dev/null; then
   fail "npm not found"
 fi
-
-# --- .env file ---
-
-if [ ! -f .env ]; then
-  if [ -f .env.example ]; then
-    cp .env.example .env
-    info "Created .env from .env.example"
-  else
-    fail ".env.example not found"
-  fi
-fi
-
-# Check for OpenAI API key
-if grep -q "sk-your-key-here" .env 2>/dev/null; then
-  echo ""
-  warn "OpenAI API key not set in .env"
-  echo -n "  Enter your OpenAI API key (or press Enter to skip): "
-  read -r API_KEY
-  if [ -n "$API_KEY" ]; then
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      sed -i '' "s|sk-your-key-here|$API_KEY|" .env
-    else
-      sed -i "s|sk-your-key-here|$API_KEY|" .env
-    fi
-    info "API key saved to .env"
-  else
-    warn "Skipped. Set OPENAI_API_KEY in .env before running."
-  fi
-fi
+warn "Set OPENAI_API_KEY in .env before starting the app."
 
 # --- npm install ---
 
@@ -76,62 +59,14 @@ info "Dependencies installed"
 
 # --- Database setup ---
 
-echo ""
-info "Setting up PostgreSQL database..."
-
-DB_USER="open_brain"
-DB_NAME="open_brain"
-DB_PASS="open_brain_local"
-
-# Try to create user (may already exist)
-if psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" 2>/dev/null | grep -q 1; then
-  info "Database user '$DB_USER' already exists"
-else
-  info "Creating database user '$DB_USER'..."
-  if ! psql -U postgres -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';" 2>/dev/null; then
-    warn "Could not create user automatically."
-    echo "  Run manually as postgres superuser:"
-    echo "    CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';"
-    echo ""
-  else
-    info "User created"
-  fi
-fi
-
-# Try to create database (may already exist)
-if psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" 2>/dev/null | grep -q 1; then
-  info "Database '$DB_NAME' already exists"
-else
-  info "Creating database '$DB_NAME'..."
-  if ! psql -U postgres -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;" 2>/dev/null; then
-    warn "Could not create database automatically."
-    echo "  Run manually as postgres superuser:"
-    echo "    CREATE DATABASE $DB_NAME OWNER $DB_USER;"
-    echo ""
-  else
-    info "Database created"
-  fi
-fi
-
-# Enable pgvector extension
-info "Enabling pgvector extension..."
-if ! psql -U postgres -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>/dev/null; then
-  warn "Could not enable pgvector. You may need to install it first:"
-  echo "  macOS:  brew install pgvector"
-  echo "  Ubuntu: sudo apt install postgresql-16-pgvector"
-  echo "  Then:   psql -U postgres -d $DB_NAME -c 'CREATE EXTENSION vector;'"
-  echo ""
-else
-  info "pgvector extension enabled"
-fi
-
-# --- Run migrations ---
+info "Setting up PostgreSQL using the credentials in .env..."
+node --env-file=.env scripts/setup.mjs database
 
 info "Running database migrations..."
-if npm run migrate 2>/dev/null; then
+if npm run migrate; then
   info "Migrations complete"
 else
-  warn "Migration failed. Check DATABASE_URL in .env and database access."
+  fail "Migration failed. Check DATABASE_URL and database access; setup is incomplete."
 fi
 
 # --- Done ---

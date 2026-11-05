@@ -96,16 +96,14 @@ npm install
 ### Настройка базы данных
 
 ```bash
-# Создать пользователя и базу (от имени admin)
-psql -U admin -d postgres -c "CREATE USER open_brain WITH PASSWORD 'open_brain_local';"
-psql -U admin -d postgres -c "CREATE DATABASE open_brain OWNER open_brain;"
-
-# Включить расширение pgvector (нужен superuser)
-psql -U admin -d open_brain -c "CREATE EXTENSION IF NOT EXISTS vector;"
-
-# Запустить миграции
-npm run migrate
+./setup.sh   # локальный PostgreSQL; администратор PGUSER, по умолчанию postgres
+# Или только создать .env для Docker, без обращения к PostgreSQL:
+./setup.sh --env-only
 ```
+
+Новая установка получает случайный пароль из 32 байтов (64 hex-символа). Он хранится в локальном `.env` с правами `0600`: в `POSTGRES_PASSWORD` и внутри `DATABASE_URL`. Установщик его не печатает. Файл исключён из git; открыть его можно локальным редактором. Для Docker дальнейшие шаги — в [Quick Start](../README.md#quick-start).
+
+Существующий `.env` сохраняется без изменений, пароль существующей роли не меняется. Если база уже есть, укажите её действующий пароль: несовпадение останавливает установку. Изменение `.env` не меняет пароль в существующей базе или Docker-томе.
 
 ### Переменные окружения
 
@@ -113,10 +111,10 @@ npm run migrate
 
 ```
 OPENAI_API_KEY=sk-proj-...
-DATABASE_URL=postgresql://open_brain:open_brain_local@localhost:5432/open_brain
+DATABASE_URL=postgresql://open_brain:CHANGE_ME_DB_PASSWORD@localhost:5432/open_brain
 ```
 
-`OPENAI_API_KEY` — обязательна. `DATABASE_URL` — опциональна (по умолчанию берётся из конфига).
+`OPENAI_API_KEY` — обязательна для приложения. Пароль БД обязателен: через `DATABASE_URL`, выбранный login Keychain (`OPEN_BRAIN_DATABASE_URL_KEYCHAIN_SERVICE`) или `database.password` в конфиге. Дефолтного пароля нет; пустое значение и `CHANGE_ME_DB_PASSWORD` останавливают запуск. При ручной настройке замените плейсхолдер, задайте тот же пароль в `POSTGRES_PASSWORD` для Compose и URL-кодируйте спецсимволы в `DATABASE_URL`. Для Compose используйте hex-пароль: он подставляется в URL контейнера напрямую.
 
 ---
 
@@ -563,7 +561,7 @@ npm run backup:restore   # учебное восстановление в отд
     "port": 5432,
     "database": "open_brain",
     "user": "open_brain",
-    "password": "open_brain_local"
+    "password": "CHANGE_ME_DB_PASSWORD"
   },
   "openai": {
     "embedding_model": "text-embedding-3-small",
@@ -593,7 +591,9 @@ npm run backup:restore   # учебное восстановление в отд
 | Переменная | Обязательная | Описание |
 |-----------|-------------|----------|
 | `OPENAI_API_KEY` | да | Ключ OpenAI API |
-| `DATABASE_URL` | нет | PostgreSQL connection string (перекрывает config.json) |
+| `DATABASE_URL` | если нет Keychain/config | PostgreSQL URL с паролем; дефолтного пароля нет |
+| `POSTGRES_PASSWORD` | для Docker Compose | Тот же пароль, что внутри `DATABASE_URL` |
+| `OPEN_BRAIN_DATABASE_URL_KEYCHAIN_SERVICE` | нет, macOS | Login Keychain; приоритет выше URL/config |
 | `PORT` | нет | Порт HTTP-сервера (по умолчанию 3100) |
 | `LOG_LEVEL` | нет | Уровень логирования pino (по умолчанию info) |
 

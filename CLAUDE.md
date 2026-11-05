@@ -17,6 +17,13 @@ Personal memory service: TypeScript/Node.js (ESM), PostgreSQL + pgvector, Drizzl
 - `*.test.ts` under `src/`: Vitest unit tests with mocked dependencies. `scripts/test-api.sh`: integration smoke that WRITES and DELETES real data.
 - `README.md`, `docs/README.md`: public documentation. Local `docs/PRD*.md` and `docs/open-brain-roadmap.md` are ignored by git. Project notes live in `~/Kisadrakon/200 Projects/Open-Brain/`; audit briefs/reports in `scratchpad/`.
 
+## Installation credentials (2026-11-06)
+
+- No shared database password remains in defaults/schema or the tracked installation templates. `scripts/database-credentials.mjs` checks the selected URL/config before startup; missing, blank or `CHANGE_ME_DB_PASSWORD` credentials produce a sanitized error. A Keychain selector still wins and never falls back.
+- `setup.sh` calls `scripts/setup.mjs`: exclusive `.env` creation with mode 0600, one 32-byte random hex password shared by `POSTGRES_PASSWORD` and `DATABASE_URL`. `--env-only` prepares Docker credentials without dependencies or database access. Existing `.env` files (including symlinks) are not overwritten, existing role passwords are never changed, and failed admin access/login/migration stops setup. SQL containing credentials uses stdin; target login uses a child environment; neither credential nor raw psql errors are printed.
+- Compose requires non-empty `POSTGRES_PASSWORD`; use hex for its URL interpolation. Updating `.env` does not rotate existing database/volume credentials. `.claude/settings.local.json` and `dist/` stay untracked; rebuild dist with `npm run build`. Never run setup against this machine's live database as a smoke test.
+- Tests: `scripts/setup.test.mjs` covers random generation, private file mode, repeated setup, config/URL failures, sanitized errors and the real stdio entry. `OPEN_BRAIN_TEST_PG_BIN=<bin>` enables its isolated SCRAM installation/retry test. Run it with `src/db/migrate.test.ts` for clean-database migrations; fixtures use `TMPDIR`, never the live DSN.
+
 ## Local runtime and data
 
 - launchd: `~/Library/LaunchAgents/com.open-brain.server.plist`, label `com.open-brain.server`; runs `src/server-hardened.ts` via local `tsx` from this repository. Endpoint: `http://127.0.0.1:3100`; bearer required, including health.

@@ -5,7 +5,7 @@ export const databaseConfigSchema = z.object({
   port: z.number().int().min(1).max(65535).default(5432),
   database: z.string().default('open_brain'),
   user: z.string().default('open_brain'),
-  password: z.string().default('open_brain_local'),
+  password: z.string().optional(),
 })
 
 export const openaiConfigSchema = z.object({

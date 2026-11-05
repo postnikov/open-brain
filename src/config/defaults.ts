@@ -6,7 +6,6 @@ export const DEFAULT_CONFIG: AppConfig = {
     port: 5432,
     database: 'open_brain',
     user: 'open_brain',
-    password: 'open_brain_local',
   },
   openai: {
     embedding_model: 'text-embedding-3-small',

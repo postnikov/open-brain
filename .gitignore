@@ -2,6 +2,8 @@ node_modules/
 dist/
 .env
 .claude/
+# Machine-local permissions may contain credentials; never publish them.
+.claude/settings.local.json
 *.js
 *.d.ts
 *.js.map

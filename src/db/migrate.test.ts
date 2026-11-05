@@ -1,5 +1,6 @@
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
@@ -14,7 +15,7 @@ const migrateEntry = new URL('./migrate.ts', import.meta.url).pathname
 describe.skipIf(!bin)('migrate on a clean database — real PostgreSQL', () => {
   let root = '', socket = '', home = '', admin: pg.Client
   beforeAll(async () => {
-    root = await mkdtemp('/tmp/ob-migrate-'); socket = join(root, 'socket'); home = join(root, 'home')
+    root = await mkdtemp(join(tmpdir(), 'ob-migrate-')); socket = join(root, 'socket'); home = join(root, 'home')
     await mkdir(socket, { mode: 0o700 }); await mkdir(home, { mode: 0o700 })
     await exec(join(bin!, 'initdb'), ['-D', join(root, 'data'), '-A', 'trust', '-U', 'fixture', '--no-locale', '--encoding=UTF8'])
     await writeFile(join(root, 'data/postgresql.auto.conf'), `listen_addresses=''\nunix_socket_directories='${socket}'\n`)
@@ -34,7 +35,7 @@ describe.skipIf(!bin)('migrate on a clean database — real PostgreSQL', () => {
   }
   /** HOME points at the fixture so the default config file is created there, not in the user's home. */
   async function migrate(database: string, user: string): Promise<{ code: number; output: string }> {
-    const env = { PATH: process.env.PATH!, HOME: home, DATABASE_URL: `postgresql://${user}@localhost/${database}?host=${encodeURIComponent(socket)}` }
+    const env = { PATH: process.env.PATH!, HOME: home, DATABASE_URL: `postgresql://${user}:synthetic-migration-password@localhost/${database}?host=${encodeURIComponent(socket)}` }
     try {
       const r = await exec(process.execPath, ['--import', 'tsx/esm', migrateEntry], { env, cwd: join(migrateEntry, '../../..'), timeout: 60_000 })
       return { code: 0, output: r.stdout + r.stderr }

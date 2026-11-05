@@ -6,6 +6,7 @@ import { logger } from '../shared/logger.js'
 import { configSchema, type AppConfig } from './schema.js'
 import { DEFAULT_CONFIG } from './defaults.js'
 import { resolveDatabaseUrl } from '../../scripts/database-url.mjs'
+import { validateDatabaseUrl, requireDatabasePassword } from '../../scripts/database-credentials.mjs'
 
 const CONFIG_DIR = join(homedir(), '.open-brain')
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json')
@@ -22,16 +23,18 @@ export async function loadConfig(): Promise<AppConfig> {
     const raw = await readFile(CONFIG_FILE, 'utf-8')
     const parsed = JSON.parse(raw)
     return configSchema.parse(parsed)
-  } catch (error) {
-    logger.warn({ error }, 'Failed to parse config, using defaults')
+  } catch {
+    // JSON/parser errors may contain excerpts of credential-bearing config.
+    logger.warn('Failed to parse config, using defaults')
     return configSchema.parse({})
   }
 }
 
 export function getDatabaseUrl(config: AppConfig): string {
   const url = resolveDatabaseUrl()
-  if (url) return url
+  if (url) return validateDatabaseUrl(url)
 
   const { host, port, database, user, password } = config.database
-  return `postgresql://${user}:${password}@${host}:${port}/${database}`
+  requireDatabasePassword(password)
+  return validateDatabaseUrl(`postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password!)}@${host}:${port}/${encodeURIComponent(database)}`)
 }
